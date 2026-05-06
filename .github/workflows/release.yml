@@ -9,51 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  version:
-    runs-on: ubuntu-latest
-    outputs:
-      new-version: ${{ steps.semver.outputs.version }}
-      should-release: ${{ steps.semver.outputs.should-release }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Determine next version
-        id: semver
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          OUTPUT=$(npx -y \
-            -p semantic-release \
-            -p @semantic-release/commit-analyzer \
-            -p @semantic-release/release-notes-generator \
-            -p @semantic-release/github \
-            -p conventional-changelog-conventionalcommits \
-            semantic-release --dry-run 2>&1) || true
-
-          VERSION=$(echo "$OUTPUT" | grep -oP 'The next release version is \K[0-9]+\.[0-9]+\.[0-9]+' || echo "")
-
-          if [ -n "$VERSION" ]; then
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-            echo "should-release=true" >> "$GITHUB_OUTPUT"
-            echo "Next version: $VERSION"
-          else
-            echo "should-release=false" >> "$GITHUB_OUTPUT"
-            echo "No release needed"
-            echo "$OUTPUT"
-          fi
-
   build:
-    needs: version
-    if: needs.version.outputs.should-release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -96,37 +52,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set version
-        shell: bash
-        env:
-          APP_VERSION: ${{ needs.version.outputs.new-version }}
-        run: |
-          node <<'EOF'
-          const fs = require("fs");
-          const version = process.env.APP_VERSION;
-
-          const packageJsonPath = "package.json";
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-          packageJson.version = version;
-          fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-
-          const tauriConfigPath = "src-tauri/tauri.conf.json";
-          const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, "utf8"));
-          tauriConfig.version = version;
-          fs.writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`);
-
-          const cargoTomlPath = "src-tauri/Cargo.toml";
-          const cargoToml = fs.readFileSync(cargoTomlPath, "utf8");
-          const updatedCargoToml = cargoToml.replace(
-            /^version = ".*"$/m,
-            `version = "${version}"`
-          );
-          fs.writeFileSync(cargoTomlPath, updatedCargoToml);
-          EOF
-
       - name: Build distributable
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx tauri build --config ${{ matrix.tauri_config }}
 
       - name: Collect artifacts
@@ -143,35 +69,30 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [version, build]
-    if: needs.version.outputs.should-release == 'true'
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist-release
           merge-multiple: true
 
-      - name: Semantic release
+      - name: Publish rolling release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          npx -y
-          -p semantic-release
-          -p @semantic-release/commit-analyzer
-          -p @semantic-release/release-notes-generator
-          -p @semantic-release/github
-          -p conventional-changelog-conventionalcommits
-          semantic-release
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          TAG="main-latest"
+          TITLE="AiUsageTrayAgent main-latest"
+          NOTES="Build automatica do branch main para o commit ${TARGET_SHA}."
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+
+          gh release create "$TAG" dist-release/* \
+            --title "$TITLE" \
+            --notes "$NOTES" \
+            --target "$TARGET_SHA"

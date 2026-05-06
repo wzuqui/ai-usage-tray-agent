@@ -136,7 +136,7 @@ Arquivos relevantes:
 O workflow de release roda:
 
 - automaticamente em `push` para `main`
-- quando o commit indicar uma nova versão, como `feat:` ou `fix:`
+- e sempre recria a release `main-latest` com os artefatos mais recentes
 
 Para publicar no GitHub Releases, garanta que o repositório permita `GITHUB_TOKEN` com permissão de escrita em Actions.
 
