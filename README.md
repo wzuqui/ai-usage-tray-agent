@@ -129,8 +129,7 @@ O repositório já está preparado para gerar:
 
 Arquivos relevantes:
 
-- Workflow de CI: [.github/workflows/ci.yml](C:/Projetos/codex/ai-usage-tray-agent/.github/workflows/ci.yml)
-- Workflow de release: [.github/workflows/release-installers.yml](C:/Projetos/codex/ai-usage-tray-agent/.github/workflows/release-installers.yml)
+- Workflow único de build/release: [.github/workflows/release.yml](C:/Projetos/codex/ai-usage-tray-agent/.github/workflows/release.yml)
 - Config Windows: [src-tauri/tauri.windows.conf.json](C:/Projetos/codex/ai-usage-tray-agent/src-tauri/tauri.windows.conf.json)
 - Config Linux: [src-tauri/tauri.linux.conf.json](C:/Projetos/codex/ai-usage-tray-agent/src-tauri/tauri.linux.conf.json)
 

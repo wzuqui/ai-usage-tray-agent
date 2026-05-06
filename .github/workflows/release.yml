@@ -34,6 +34,8 @@ jobs:
           OUTPUT=$(npx -y \
             -p semantic-release \
             -p @semantic-release/commit-analyzer \
+            -p @semantic-release/release-notes-generator \
+            -p @semantic-release/github \
             -p conventional-changelog-conventionalcommits \
             semantic-release --dry-run 2>&1) || true
 
@@ -46,6 +48,7 @@ jobs:
           else
             echo "should-release=false" >> "$GITHUB_OUTPUT"
             echo "No release needed"
+            echo "$OUTPUT"
           fi
 
   build:
@@ -57,12 +60,12 @@ jobs:
         include:
           - os: windows-latest
             tauri_config: src-tauri/tauri.windows.conf.json
-            source_artifact: src-tauri/target/release/bundle/msi/*.msi
-            output_name: dist-windows-latest
+            artifact_glob: src-tauri/target/release/bundle/msi/*.msi
+            artifact_name: dist-windows-latest
           - os: ubuntu-22.04
             tauri_config: src-tauri/tauri.linux.conf.json
-            source_artifact: src-tauri/target/release/bundle/appimage/*.AppImage
-            output_name: dist-ubuntu-22.04
+            artifact_glob: src-tauri/target/release/bundle/appimage/*.AppImage
+            artifact_name: dist-ubuntu-22.04
 
     runs-on: ${{ matrix.os }}
 
@@ -130,13 +133,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist-release
-          cp ${{ matrix.source_artifact }} dist-release/
+          cp ${{ matrix.artifact_glob }} dist-release/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.output_name }}
+          name: ${{ matrix.artifact_name }}
           path: dist-release/*
+          if-no-files-found: error
 
   release:
     needs: [version, build]
