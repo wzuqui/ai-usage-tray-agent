@@ -136,8 +136,8 @@ Arquivos relevantes:
 
 O workflow de release roda:
 
-- manualmente via `workflow_dispatch`
-- ou quando você enviar uma tag como `v0.1.0`
+- automaticamente em `push` para `main`
+- quando o commit indicar uma nova versão, como `feat:` ou `fix:`
 
 Para publicar no GitHub Releases, garanta que o repositório permita `GITHUB_TOKEN` com permissão de escrita em Actions.
 

@@ -1,37 +1,77 @@
 name: release-installers
 
 on:
-  workflow_dispatch:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+
+permissions:
+  contents: write
 
 jobs:
-  build-installers:
-    permissions:
-      contents: write
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      new-version: ${{ steps.semver.outputs.version }}
+      should-release: ${{ steps.semver.outputs.should-release }}
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Determine next version
+        id: semver
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUTPUT=$(npx -y \
+            -p semantic-release \
+            -p @semantic-release/commit-analyzer \
+            -p conventional-changelog-conventionalcommits \
+            semantic-release --dry-run 2>&1) || true
+
+          VERSION=$(echo "$OUTPUT" | grep -oP 'The next release version is \K[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+
+          if [ -n "$VERSION" ]; then
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "should-release=true" >> "$GITHUB_OUTPUT"
+            echo "Next version: $VERSION"
+          else
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+            echo "No release needed"
+          fi
+
+  build:
+    needs: version
+    if: needs.version.outputs.should-release == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
+          - os: windows-latest
             artifact_name: windows-msi
             tauri_config: src-tauri/tauri.windows.conf.json
             artifact_path: src-tauri/target/release/bundle/msi/*.msi
-          - platform: ubuntu-22.04
+          - os: ubuntu-22.04
             artifact_name: linux-appimage
             tauri_config: src-tauri/tauri.linux.conf.json
             artifact_path: src-tauri/target/release/bundle/appimage/*.AppImage
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -39,7 +79,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 20
           cache: npm
 
       - name: Install Rust stable
@@ -53,22 +93,69 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build and release Tauri app
-        uses: tauri-apps/tauri-action@v0
+      - name: Sync release version
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: .
-          tagName: v__VERSION__
-          releaseName: "AiUsageTrayAgent v__VERSION__"
-          releaseBody: "Instaladores gerados automaticamente para Windows e Linux (.msi e AppImage)."
-          releaseDraft: false
-          prerelease: false
-          args: --config ${{ matrix.tauri_config }}
+          APP_VERSION: ${{ needs.version.outputs.new-version }}
+        run: |
+          node <<'EOF'
+          const fs = require("fs");
+          const version = process.env.APP_VERSION;
 
-      - name: Upload build artifact
+          const packageJsonPath = "package.json";
+          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+          packageJson.version = version;
+          fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+          const tauriConfigPath = "src-tauri/tauri.conf.json";
+          const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, "utf8"));
+          tauriConfig.version = version;
+          fs.writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`);
+
+          const cargoTomlPath = "src-tauri/Cargo.toml";
+          const cargoToml = fs.readFileSync(cargoTomlPath, "utf8");
+          const updatedCargoToml = cargoToml.replace(
+            /^version = ".*"$/m,
+            `version = "${version}"`
+          );
+          fs.writeFileSync(cargoTomlPath, updatedCargoToml);
+          EOF
+
+      - name: Build distributable
+        run: npx tauri build --config ${{ matrix.tauri_config }}
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    if: needs.version.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          merge-multiple: true
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.new-version }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          TAG="v$VERSION"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/* --clobber
+          else
+            gh release create "$TAG" dist-release/* \
+              --title "AiUsageTrayAgent $TAG" \
+              --target "$TARGET_SHA" \
+              --generate-notes
+          fi
