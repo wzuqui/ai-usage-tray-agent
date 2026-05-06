@@ -1,4 +1,4 @@
-name: release-installers
+name: Release
 
 on:
   push:
@@ -56,13 +56,13 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact_name: windows-msi
             tauri_config: src-tauri/tauri.windows.conf.json
-            artifact_path: src-tauri/target/release/bundle/msi/*.msi
+            source_artifact: src-tauri/target/release/bundle/msi/*.msi
+            output_name: dist-windows-latest
           - os: ubuntu-22.04
-            artifact_name: linux-appimage
             tauri_config: src-tauri/tauri.linux.conf.json
-            artifact_path: src-tauri/target/release/bundle/appimage/*.AppImage
+            source_artifact: src-tauri/target/release/bundle/appimage/*.AppImage
+            output_name: dist-ubuntu-22.04
 
     runs-on: ${{ matrix.os }}
 
@@ -90,10 +90,10 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
-      - name: Install frontend dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Sync release version
+      - name: Set version
         shell: bash
         env:
           APP_VERSION: ${{ needs.version.outputs.new-version }}
@@ -122,14 +122,21 @@ jobs:
           EOF
 
       - name: Build distributable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx tauri build --config ${{ matrix.tauri_config }}
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p dist-release
+          cp ${{ matrix.source_artifact }} dist-release/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
-          if-no-files-found: error
+          name: ${{ matrix.output_name }}
+          path: dist-release/*
 
   release:
     needs: [version, build]
@@ -137,25 +144,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist-release
           merge-multiple: true
 
-      - name: Create or update GitHub release
+      - name: Semantic release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.version.outputs.new-version }}
-          TARGET_SHA: ${{ github.sha }}
-        run: |
-          TAG="v$VERSION"
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist-release/* --clobber
-          else
-            gh release create "$TAG" dist-release/* \
-              --title "AiUsageTrayAgent $TAG" \
-              --target "$TARGET_SHA" \
-              --generate-notes
-          fi
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          npx -y
+          -p semantic-release
+          -p @semantic-release/commit-analyzer
+          -p @semantic-release/release-notes-generator
+          -p @semantic-release/github
+          -p conventional-changelog-conventionalcommits
+          semantic-release
