@@ -313,6 +313,13 @@ fn trigger_collection<R: Runtime>(app: &AppHandle<R>) {
     let paths = app.state::<RuntimePaths>().inner().clone();
     let shared = app.state::<Arc<SharedState>>().inner().clone();
 
+    let _ = append_log_line(
+        &paths,
+        "info",
+        "Envio manual solicitado pelo usuario.",
+        None,
+    );
+
     thread::spawn(move || {
         let _ = run_collection_cycle(&app_handle, &paths, &shared);
     });
@@ -372,8 +379,28 @@ fn run_collection_cycle<R: Runtime>(
                 update_metric(shared, metric.clone());
                 if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
                     had_error = true;
+                    let _ = append_log_line(
+                        paths,
+                        "error",
+                        "Falha ao enviar metrica para o Loki.",
+                        Some(json!({
+                            "ferramenta": "codex",
+                            "error": error
+                        })),
+                    );
                     handle_runtime_error(app, &error);
                 } else {
+                    let _ = append_log_line(
+                        paths,
+                        "info",
+                        "Metrica enviada para o Loki.",
+                        Some(json!({
+                            "ferramenta": "codex",
+                            "uso_percentual": metric.uso_percentual,
+                            "status": metric.status,
+                            "reset_em": metric.reset_em
+                        })),
+                    );
                     mark_success(shared);
                 }
             }
@@ -381,6 +408,15 @@ fn run_collection_cycle<R: Runtime>(
                 had_error = true;
                 let metric = build_error_metric(&config.usuario, "codex", &error);
                 update_metric(shared, metric);
+                let _ = append_log_line(
+                    paths,
+                    "error",
+                    "Falha ao coletar metrica.",
+                    Some(json!({
+                        "ferramenta": "codex",
+                        "error": error
+                    })),
+                );
                 handle_runtime_error(app, &error);
             }
         }
@@ -392,8 +428,28 @@ fn run_collection_cycle<R: Runtime>(
                 update_metric(shared, metric.clone());
                 if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
                     had_error = true;
+                    let _ = append_log_line(
+                        paths,
+                        "error",
+                        "Falha ao enviar metrica para o Loki.",
+                        Some(json!({
+                            "ferramenta": "claude",
+                            "error": error
+                        })),
+                    );
                     handle_runtime_error(app, &error);
                 } else {
+                    let _ = append_log_line(
+                        paths,
+                        "info",
+                        "Metrica enviada para o Loki.",
+                        Some(json!({
+                            "ferramenta": "claude",
+                            "uso_percentual": metric.uso_percentual,
+                            "status": metric.status,
+                            "reset_em": metric.reset_em
+                        })),
+                    );
                     mark_success(shared);
                 }
             }
@@ -401,6 +457,15 @@ fn run_collection_cycle<R: Runtime>(
                 had_error = true;
                 let metric = build_error_metric(&config.usuario, "claude", &error);
                 update_metric(shared, metric);
+                let _ = append_log_line(
+                    paths,
+                    "error",
+                    "Falha ao coletar metrica.",
+                    Some(json!({
+                        "ferramenta": "claude",
+                        "error": error
+                    })),
+                );
                 handle_runtime_error(app, &error);
             }
         }
