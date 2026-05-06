@@ -1,0 +1,21 @@
+POST http://loki.exemplo.local:3100/loki/api/v1/push
+Content-Type: application/json
+
+{
+  "streams": [
+    {
+      "stream": {
+        "app": "ai-usage-tray-agent",
+        "usuario": "usuario-exemplo",
+        "ferramenta": "codex",
+        "host": "HOST-EXEMPLO"
+      },
+      "values": [
+        [
+          "1778070900000000000",
+          "{\"uso_percentual\":73.5,\"restante_percentual\":26.5,\"status\":\"ok\",\"reset_em\":null}"
+        ]
+      ]
+    }
+  ]
+}

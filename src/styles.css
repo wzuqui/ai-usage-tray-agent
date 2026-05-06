@@ -1,0 +1,15 @@
+:root {
+  font-family: "Segoe UI", sans-serif;
+  color: #dbe7ff;
+  background: #0b1020;
+}
+
+.container {
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
