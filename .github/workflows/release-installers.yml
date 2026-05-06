@@ -16,9 +16,13 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            artifact_name: windows-installer
+            artifact_name: windows-msi
+            tauri_config: src-tauri/tauri.windows.conf.json
+            artifact_path: src-tauri/target/release/bundle/msi/*.msi
           - platform: ubuntu-22.04
-            artifact_name: linux-installer
+            artifact_name: linux-appimage
+            tauri_config: src-tauri/tauri.linux.conf.json
+            artifact_path: src-tauri/target/release/bundle/appimage/*.AppImage
 
     runs-on: ${{ matrix.platform }}
 
@@ -54,24 +58,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: .
           tagName: v__VERSION__
           releaseName: "AiUsageTrayAgent v__VERSION__"
-          releaseBody: "Instaladores gerados automaticamente para Windows e Linux."
-          releaseDraft: true
+          releaseBody: "Instaladores gerados automaticamente para Windows e Linux (.msi e AppImage)."
+          releaseDraft: false
           prerelease: false
+          args: --config ${{ matrix.tauri_config }}
 
-      - name: Upload Windows installer artifact
-        if: matrix.platform == 'windows-latest'
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: error
-
-      - name: Upload Linux installer artifact
-        if: matrix.platform == 'ubuntu-22.04'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: src-tauri/target/release/bundle/deb/*.deb
+          path: ${{ matrix.artifact_path }}
           if-no-files-found: error

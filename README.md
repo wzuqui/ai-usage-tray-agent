@@ -25,8 +25,8 @@ MVP funcional com:
 - Coleta real do Claude usando `organizationId` e `sessionKey`
 - Envio para Loki sem `tenant` e sem `basic auth`
 - Empacotamento planejado para:
-- Windows: instalador NSIS `.exe`
-- Linux: pacote `.deb`
+- Windows: instalador `.msi`
+- Linux: `AppImage`
 
 ## Configuração
 
@@ -124,8 +124,8 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 O repositório já está preparado para gerar:
 
-- Windows: NSIS `.exe`
-- Linux: `.deb`
+- Windows: `.msi`
+- Linux: `AppImage`
 
 Arquivos relevantes:
 
