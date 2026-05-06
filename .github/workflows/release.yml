@@ -80,19 +80,18 @@ jobs:
           merge-multiple: true
 
       - name: Publish rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: main-latest
+          name: AiUsageTrayAgent main-latest
+          body: Build automatica do branch main para o commit `${{ github.sha }}`.
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: |
+            dist-release/*.msi
+            dist-release/*.AppImage
+          fail_on_unmatched_files: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: ${{ github.sha }}
-        run: |
-          TAG="main-latest"
-          TITLE="AiUsageTrayAgent main-latest"
-          NOTES="Build automatica do branch main para o commit ${TARGET_SHA}."
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release delete "$TAG" --yes --cleanup-tag
-          fi
-
-          gh release create "$TAG" dist-release/* \
-            --title "$TITLE" \
-            --notes "$NOTES" \
-            --target "$TARGET_SHA"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
