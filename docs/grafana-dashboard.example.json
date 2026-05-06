@@ -13,10 +13,10 @@
             "kind": "DataQuery",
             "group": "grafana",
             "version": "v0",
-            "spec": {},
-            "labels": {
-              "grafana.app/export-label": "grafana"
-            }
+            "datasource": {
+              "name": "-- Grafana --"
+            },
+            "spec": {}
           },
           "enable": true,
           "hide": true,
@@ -34,7 +34,7 @@
         "spec": {
           "id": 1,
           "title": "Uso de Codex / Claude por usuário",
-          "description": "Linha temporal do uso percentual por usuário e ferramenta.",
+          "description": "",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -47,14 +47,15 @@
                       "kind": "DataQuery",
                       "group": "loki",
                       "version": "v0",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "max_over_time({app=\"ai-usage-tray-agent\", usuario=~\"$usuario\", ferramenta=~\"$ferramenta\"} | json | unwrap uso_percentual [$__interval])",
-                        "legendFormat": "{{usuario}} / {{ferramenta}}",
-                        "queryType": "range"
+                      "datasource": {
+                        "name": "Loki"
                       },
-                      "labels": {
-                        "grafana.app/export-label": "loki"
+                      "spec": {
+                        "direction": "backward",
+                        "editorMode": "code",
+                        "expr": "max by (usuario, ferramenta) (max_over_time({app=\"ai-usage-tray-agent\", usuario=~\"$usuario\", ferramenta=~\"$ferramenta\"} | json | unwrap uso_percentual [$__interval]))",
+                        "legendFormat": "{{usuario}} - {{ferramenta}}",
+                        "queryType": "range"
                       }
                     },
                     "refId": "A",
@@ -158,109 +159,6 @@
           }
         }
       },
-      "panel-2": {
-        "kind": "Panel",
-        "spec": {
-          "id": 2,
-          "title": "Uso atual Codex",
-          "description": "Gauge do último valor conhecido do Codex.",
-          "links": [],
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "loki",
-                      "version": "v0",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "max_over_time({app=\"ai-usage-tray-agent\", usuario=~\"$usuario\", ferramenta=\"codex\"} | json | unwrap uso_percentual [30s])",
-                        "legendFormat": "{{usuario}} / codex",
-                        "queryType": "range"
-                      },
-                      "labels": {
-                        "grafana.app/export-label": "loki"
-                      }
-                    },
-                    "refId": "A",
-                    "hidden": false
-                  }
-                }
-              ],
-              "transformations": [],
-              "queryOptions": {}
-            }
-          },
-          "vizConfig": {
-            "kind": "VizConfig",
-            "group": "gauge",
-            "version": "13.0.1",
-            "spec": {
-              "options": {
-                "barShape": "flat",
-                "barWidthFactor": 0.5,
-                "effects": {
-                  "barGlow": false,
-                  "centerGlow": false,
-                  "gradient": false
-                },
-                "endpointMarker": "point",
-                "minVizHeight": 75,
-                "minVizWidth": 75,
-                "orientation": "auto",
-                "reduceOptions": {
-                  "calcs": [
-                    "lastNotNull"
-                  ],
-                  "fields": "",
-                  "values": false
-                },
-                "segmentCount": 1,
-                "segmentSpacing": 0.3,
-                "shape": "gauge",
-                "showThresholdLabels": false,
-                "showThresholdMarkers": true,
-                "sizing": "auto",
-                "sparkline": false,
-                "textMode": "auto"
-              },
-              "fieldConfig": {
-                "defaults": {
-                  "unit": "percent",
-                  "decimals": 1,
-                  "min": 0,
-                  "max": 100,
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": 0,
-                        "color": "green"
-                      },
-                      {
-                        "value": 60,
-                        "color": "yellow"
-                      },
-                      {
-                        "value": 85,
-                        "color": "red"
-                      }
-                    ]
-                  },
-                  "color": {
-                    "mode": "thresholds"
-                  }
-                },
-                "overrides": []
-              }
-            }
-          }
-        }
-      },
       "panel-3": {
         "kind": "Panel",
         "spec": {
@@ -279,14 +177,15 @@
                       "kind": "DataQuery",
                       "group": "loki",
                       "version": "v0",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "max_over_time({app=\"ai-usage-tray-agent\", usuario=~\"$usuario\", ferramenta=\"claude\"} | json | unwrap uso_percentual [30s])",
-                        "legendFormat": "{{usuario}} / claude",
-                        "queryType": "range"
+                      "datasource": {
+                        "name": "Loki"
                       },
-                      "labels": {
-                        "grafana.app/export-label": "loki"
+                      "spec": {
+                        "direction": "backward",
+                        "editorMode": "code",
+                        "expr": "max by (usuario) (last_over_time({app=\"ai-usage-tray-agent\", usuario=~\"$usuario\", ferramenta=\"claude\"} | json | unwrap uso_percentual [5m]))",
+                        "legendFormat": "{{usuario}}",
+                        "queryType": "range"
                       }
                     },
                     "refId": "A",
@@ -369,7 +268,7 @@
         "spec": {
           "id": 4,
           "title": "Últimos logs recebidos",
-          "description": "Tabela com os registros mais recentes recebidos pelo Loki.",
+          "description": "",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -382,13 +281,14 @@
                       "kind": "DataQuery",
                       "group": "loki",
                       "version": "v0",
+                      "datasource": {
+                        "name": "Loki"
+                      },
                       "spec": {
+                        "direction": "backward",
                         "editorMode": "code",
                         "expr": "{app=\"ai-usage-tray-agent\", usuario=~\"$usuario\", ferramenta=~\"$ferramenta\"} | json",
                         "queryType": "range"
-                      },
-                      "labels": {
-                        "grafana.app/export-label": "loki"
                       }
                     },
                     "refId": "A",
@@ -434,6 +334,123 @@
                     "inspect": false
                   }
                 },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "labels"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 3334
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "panel-5": {
+        "kind": "Panel",
+        "spec": {
+          "id": 5,
+          "title": "Uso atual Codex",
+          "description": "Gauge do último valor conhecido do Codex.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "loki",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "Loki"
+                      },
+                      "spec": {
+                        "direction": "backward",
+                        "editorMode": "code",
+                        "expr": "max by (usuario) (last_over_time({app=\"ai-usage-tray-agent\", usuario=~\"$usuario\", ferramenta=\"codex\"} | json | unwrap uso_percentual [5m]))",
+                        "legendFormat": "{{usuario}}",
+                        "queryType": "range"
+                      }
+                    },
+                    "refId": "A",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "gauge",
+            "version": "13.0.1",
+            "spec": {
+              "options": {
+                "barShape": "flat",
+                "barWidthFactor": 0.5,
+                "effects": {
+                  "barGlow": false,
+                  "centerGlow": false,
+                  "gradient": false
+                },
+                "endpointMarker": "point",
+                "minVizHeight": 75,
+                "minVizWidth": 75,
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "segmentCount": 1,
+                "segmentSpacing": 0.3,
+                "shape": "gauge",
+                "showThresholdLabels": false,
+                "showThresholdMarkers": true,
+                "sizing": "auto",
+                "sparkline": false,
+                "textMode": "auto"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent",
+                  "decimals": 1,
+                  "min": 0,
+                  "max": 100,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      },
+                      {
+                        "value": 60,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 85,
+                        "color": "red"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  }
+                },
                 "overrides": []
               }
             }
@@ -467,7 +484,7 @@
               "height": 8,
               "element": {
                 "kind": "ElementReference",
-                "name": "panel-2"
+                "name": "panel-5"
               }
             }
           },
@@ -511,7 +528,7 @@
     ],
     "timeSettings": {
       "timezone": "browser",
-      "from": "now-30m",
+      "from": "now-3h",
       "to": "now",
       "autoRefresh": "5s",
       "autoRefreshIntervals": [
@@ -536,8 +553,12 @@
         "spec": {
           "name": "usuario",
           "current": {
-            "text": "",
-            "value": ""
+            "text": [
+              "All"
+            ],
+            "value": [
+              "$__all"
+            ]
           },
           "label": "Usuário",
           "hide": "dontHide",
@@ -547,11 +568,11 @@
             "kind": "DataQuery",
             "group": "loki",
             "version": "v0",
+            "datasource": {
+              "name": "Loki"
+            },
             "spec": {
               "__legacyStringValue": "label_values({app=\"ai-usage-tray-agent\"}, usuario)"
-            },
-            "labels": {
-              "grafana.app/export-label": "loki"
             }
           },
           "regex": "",
@@ -569,8 +590,8 @@
         "spec": {
           "name": "ferramenta",
           "current": {
-            "text": "",
-            "value": ""
+            "text": "All",
+            "value": "$__all"
           },
           "label": "Ferramenta",
           "hide": "dontHide",
@@ -580,11 +601,11 @@
             "kind": "DataQuery",
             "group": "loki",
             "version": "v0",
+            "datasource": {
+              "name": "Loki"
+            },
             "spec": {
               "__legacyStringValue": "label_values({app=\"ai-usage-tray-agent\"}, ferramenta)"
-            },
-            "labels": {
-              "grafana.app/export-label": "loki"
             }
           },
           "regex": "",
