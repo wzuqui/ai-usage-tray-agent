@@ -74,6 +74,12 @@ struct UsageMetric {
     coletado_em: String,
     reset_em: Option<String>,
     erro: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    uso_percentual_7d: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    restante_percentual_7d: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reset_em_7d: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +128,7 @@ struct OpenAiUsageResponse {
 #[derive(Debug, Deserialize)]
 struct OpenAiRateLimit {
     primary_window: Option<OpenAiPrimaryWindow>,
+    secondary_window: Option<OpenAiSecondaryWindow>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -131,12 +138,25 @@ struct OpenAiPrimaryWindow {
 }
 
 #[derive(Debug, Deserialize)]
+struct OpenAiSecondaryWindow {
+    used_percent: Option<f64>,
+    reset_at: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ClaudeUsageResponse {
     five_hour: Option<ClaudeFiveHour>,
+    seven_day: Option<ClaudeSevenDay>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ClaudeFiveHour {
+    utilization: Option<f64>,
+    resets_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeSevenDay {
     utilization: Option<f64>,
     resets_at: Option<String>,
 }
@@ -229,8 +249,8 @@ fn build_tray_menu<R: Runtime>(
         "Status: coleta ativa".to_string()
     };
 
-    let codex_text = format!("Codex: {}", metric_percent(snapshot.codex_metric.as_ref()));
-    let claude_text = format!("Claude: {}", metric_percent(snapshot.claude_metric.as_ref()));
+    let codex_text = format!("Codex: {}", metric_text(snapshot.codex_metric.as_ref()));
+    let claude_text = format!("Claude: {}", metric_text(snapshot.claude_metric.as_ref()));
     let pause_label = if snapshot.paused {
         "Retomar coleta"
     } else {
@@ -397,8 +417,10 @@ fn run_collection_cycle<R: Runtime>(
                         Some(json!({
                             "ferramenta": "codex",
                             "uso_percentual": metric.uso_percentual,
+                            "uso_percentual_7d": metric.uso_percentual_7d,
                             "status": metric.status,
-                            "reset_em": metric.reset_em
+                            "reset_em": metric.reset_em,
+                            "reset_em_7d": metric.reset_em_7d
                         })),
                     );
                     mark_success(shared);
@@ -446,8 +468,10 @@ fn run_collection_cycle<R: Runtime>(
                         Some(json!({
                             "ferramenta": "claude",
                             "uso_percentual": metric.uso_percentual,
+                            "uso_percentual_7d": metric.uso_percentual_7d,
                             "status": metric.status,
-                            "reset_em": metric.reset_em
+                            "reset_em": metric.reset_em,
+                            "reset_em_7d": metric.reset_em_7d
                         })),
                     );
                     mark_success(shared);
@@ -526,9 +550,12 @@ fn collect_codex_metric(client: &Client, config: &AppConfig) -> Result<UsageMetr
         .json()
         .map_err(|error| format!("Falha ao decodificar resposta do Codex: {error}"))?;
 
-    let primary_window = payload
+    let rate_limit = payload
         .rate_limit
-        .and_then(|value| value.primary_window)
+        .ok_or_else(|| "rate_limit nao foi encontrado na resposta do Codex.".to_string())?;
+
+    let primary_window = rate_limit
+        .primary_window
         .ok_or_else(|| "rate_limit.primary_window nao foi encontrado na resposta do Codex.".to_string())?;
 
     let used_percent = primary_window
@@ -537,6 +564,15 @@ fn collect_codex_metric(client: &Client, config: &AppConfig) -> Result<UsageMetr
             "rate_limit.primary_window.used_percent nao foi encontrado na resposta do Codex."
                 .to_string()
         })?;
+
+    let secondary_used_percent = rate_limit
+        .secondary_window
+        .as_ref()
+        .and_then(|value| value.used_percent);
+    let secondary_reset_at = rate_limit
+        .secondary_window
+        .as_ref()
+        .and_then(|value| value.reset_at);
 
     Ok(UsageMetric {
         usuario: normalized_user(&config.usuario),
@@ -547,6 +583,9 @@ fn collect_codex_metric(client: &Client, config: &AppConfig) -> Result<UsageMetr
         coletado_em: Utc::now().to_rfc3339(),
         reset_em: primary_window.reset_at.and_then(timestamp_seconds_to_iso),
         erro: None,
+        uso_percentual_7d: secondary_used_percent.map(round_percent),
+        restante_percentual_7d: secondary_used_percent.map(|value| round_percent(100.0 - value)),
+        reset_em_7d: secondary_reset_at.and_then(timestamp_seconds_to_iso),
     })
 }
 
@@ -594,6 +633,15 @@ fn collect_claude_metric(client: &Client, config: &AppConfig) -> Result<UsageMet
         .utilization
         .ok_or_else(|| "five_hour.utilization nao foi encontrado na resposta do Claude.".to_string())?;
 
+    let seven_day_utilization = payload
+        .seven_day
+        .as_ref()
+        .and_then(|value| value.utilization);
+    let seven_day_resets_at = payload
+        .seven_day
+        .as_ref()
+        .and_then(|value| value.resets_at.clone());
+
     Ok(UsageMetric {
         usuario: normalized_user(&config.usuario),
         ferramenta: "claude".to_string(),
@@ -603,6 +651,9 @@ fn collect_claude_metric(client: &Client, config: &AppConfig) -> Result<UsageMet
         coletado_em: Utc::now().to_rfc3339(),
         reset_em: five_hour.resets_at,
         erro: None,
+        uso_percentual_7d: seven_day_utilization.map(round_percent),
+        restante_percentual_7d: seven_day_utilization.map(|value| round_percent(100.0 - value)),
+        reset_em_7d: seven_day_resets_at,
     })
 }
 
@@ -626,6 +677,16 @@ fn send_metric_to_loki(client: &Client, config: &AppConfig, metric: &UsageMetric
 
     if let Some(error) = &metric.erro {
         body["erro"] = Value::String(error.clone());
+    }
+
+    if let Some(value) = metric.uso_percentual_7d {
+        body["uso_percentual_7d"] = json!(value);
+    }
+    if let Some(value) = metric.restante_percentual_7d {
+        body["restante_percentual_7d"] = json!(value);
+    }
+    if let Some(value) = &metric.reset_em_7d {
+        body["reset_em_7d"] = Value::String(value.clone());
     }
 
     let payload = json!({
@@ -665,8 +726,8 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
         let snapshot = shared.snapshot.lock().unwrap().clone();
         let tooltip = format!(
             "AiUsageTrayAgent\nCodex: {}\nClaude: {}",
-            metric_percent(snapshot.codex_metric.as_ref()),
-            metric_percent(snapshot.claude_metric.as_ref())
+            metric_text(snapshot.codex_metric.as_ref()),
+            metric_text(snapshot.claude_metric.as_ref())
         );
 
         #[cfg(target_os = "windows")]
@@ -674,9 +735,9 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
 
         #[cfg(target_os = "linux")]
         tray.set_title(Some(format!(
-            "C:{} | Cl:{}",
-            metric_percent(snapshot.codex_metric.as_ref()),
-            metric_percent(snapshot.claude_metric.as_ref())
+            "C:{} / Cl:{}",
+            metric_text(snapshot.codex_metric.as_ref()),
+            metric_text(snapshot.claude_metric.as_ref())
         )))?;
 
         let menu = build_tray_menu(app, &snapshot)?;
@@ -733,6 +794,9 @@ fn build_error_metric(usuario: &str, ferramenta: &str, erro: &str) -> UsageMetri
         coletado_em: Utc::now().to_rfc3339(),
         reset_em: None,
         erro: Some(erro.to_string()),
+        uso_percentual_7d: None,
+        restante_percentual_7d: None,
+        reset_em_7d: None,
     }
 }
 
@@ -745,10 +809,15 @@ fn normalized_user(usuario: &str) -> String {
     }
 }
 
-fn metric_percent(metric: Option<&UsageMetric>) -> String {
-    metric
-        .map(|value| format!("{:.1}%", value.uso_percentual))
-        .unwrap_or_else(|| "--".to_string())
+fn metric_text(metric: Option<&UsageMetric>) -> String {
+    let Some(metric) = metric else {
+        return "--".to_string();
+    };
+    let session = format!("{:.1}%", metric.uso_percentual);
+    match metric.uso_percentual_7d {
+        Some(seven_day) => format!("{session} | {:.1}% (7d)", seven_day),
+        None => session,
+    }
 }
 
 fn truncate(text: &str, max_len: usize) -> String {
