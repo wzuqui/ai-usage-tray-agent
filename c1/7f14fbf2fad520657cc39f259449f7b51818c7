@@ -1,0 +1,23 @@
+src-tauri/Cargo.toml
+  s_5234f1a7a8ce98::t_1c89e81f69b2f6 3
+package.json
+  s_5234f1a7a8ce98::t_96f6f57f724c1e 4
+src-tauri/tauri.conf.json
+  s_5234f1a7a8ce98::t_c26210fecea71d 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c17f14fbf2fad520657cc39f259449f7b51818c7",
+  "prompts": {},
+  "sessions": {
+    "s_5234f1a7a8ce98": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_1f5cb02ccffeKR1hpQPq1PpPhM",
+        "model": "unknown"
+      },
+      "human_author": "Willian Zuqui <willian.zuqui@ravex.com.br>"
+    }
+  }
+}
