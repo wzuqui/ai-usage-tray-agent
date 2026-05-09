@@ -1,0 +1,32 @@
+src-tauri/src/lib.rs
+  s_5234f1a7a8ce98::t_4b69ab2c9eaf3d 149,158-159
+  s_5234f1a7a8ce98::t_029032e9e081d1 77-82
+  s_5234f1a7a8ce98::t_27b912160ab0ca 471,473-474
+  s_5234f1a7a8ce98::t_4c84584ee1f102 636-644,654-656
+  s_5234f1a7a8ce98::t_3620153850fc88 682-691
+  s_5234f1a7a8ce98::t_9e87e5bc713c5a 738
+  s_5234f1a7a8ce98::t_4ed9a7f5ffbddc 252-253
+  s_5234f1a7a8ce98::t_ea64ffb585ed6a 131,140-141
+  s_5234f1a7a8ce98::t_f68fa0d32cce48 797-799
+  s_5234f1a7a8ce98::t_9433c0d7c44c8a 812
+  s_5234f1a7a8ce98::t_5d7401dd468861 420,422-423
+  s_5234f1a7a8ce98::t_268b32709db7b9 813-820
+  s_5234f1a7a8ce98::t_d464491a4c19e5 729-730,739-740
+  s_5234f1a7a8ce98::t_21e518da591951 553,555-558,568-576,586-588
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "4830e53b1ea16e7b9311e96242a23909cb3ba268",
+  "prompts": {},
+  "sessions": {
+    "s_5234f1a7a8ce98": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_1f5cb02ccffeKR1hpQPq1PpPhM",
+        "model": "unknown"
+      },
+      "human_author": "Willian Zuqui <willian.zuqui@ravex.com.br>"
+    }
+  }
+}
