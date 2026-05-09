@@ -1,6 +1,6 @@
 [package]
 name = "ai-usage-tray-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tray app para coletar uso de Codex e Claude e enviar para Loki."
 authors = ["wzuqui"]
 edition = "2021"
