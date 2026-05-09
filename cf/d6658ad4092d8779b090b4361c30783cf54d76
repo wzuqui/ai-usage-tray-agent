@@ -1,0 +1,19 @@
+docs/grafana-dashboard.example.json
+  s_5234f1a7a8ce98::t_cd82e18967c6c7 87-89,164-316,351-378,384,388-389,416-426,429-445,484-541,552-558,604,607,638-665,671,675-676,703-713,716-732,737-746,748-773,776-779,781-1067,1069-1142,1144,1146-1204,1209,1211-1269,1287,1312
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "cfd6658ad4092d8779b090b4361c30783cf54d76",
+  "prompts": {},
+  "sessions": {
+    "s_5234f1a7a8ce98": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_1f5cb02ccffeKR1hpQPq1PpPhM",
+        "model": "unknown"
+      },
+      "human_author": "Willian Zuqui <willian.zuqui@ravex.com.br>"
+    }
+  }
+}
