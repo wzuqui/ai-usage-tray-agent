@@ -726,8 +726,8 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
         let snapshot = shared.snapshot.lock().unwrap().clone();
         let tooltip = format!(
             "AiUsageTrayAgent\nCodex: {}\nClaude: {}",
-            metric_text(snapshot.codex_metric.as_ref()),
-            metric_text(snapshot.claude_metric.as_ref())
+            metric_tooltip_text(snapshot.codex_metric.as_ref()),
+            metric_tooltip_text(snapshot.claude_metric.as_ref())
         );
 
         #[cfg(target_os = "windows")]
@@ -817,6 +817,36 @@ fn metric_text(metric: Option<&UsageMetric>) -> String {
     match metric.uso_percentual_7d {
         Some(seven_day) => format!("{session} | {:.1}% (7d)", seven_day),
         None => session,
+    }
+}
+
+fn metric_tooltip_text(metric: Option<&UsageMetric>) -> String {
+    let Some(metric) = metric else {
+        return "--".to_string();
+    };
+    let session = format!("{:.1}%", metric.uso_percentual);
+    match metric.reset_em.as_deref().and_then(format_time_until) {
+        Some(remaining) => format!("{session} ({remaining})"),
+        None => session,
+    }
+}
+
+fn format_time_until(reset_iso: &str) -> Option<String> {
+    let reset = DateTime::parse_from_rfc3339(reset_iso).ok()?;
+    let delta = reset.with_timezone(&Utc).signed_duration_since(Utc::now());
+    let total_secs = delta.num_seconds();
+    if total_secs <= 0 {
+        return Some("agora".to_string());
+    }
+    let days = total_secs / 86400;
+    let hours = (total_secs % 86400) / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    if days > 0 {
+        Some(format!("{days}d{hours}h"))
+    } else if hours > 0 {
+        Some(format!("{hours}h{minutes}m"))
+    } else {
+        Some(format!("{minutes}m"))
     }
 }
 
