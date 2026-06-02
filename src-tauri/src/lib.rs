@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 
+mod usage_dashboard;
+
 use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -103,6 +105,10 @@ struct SharedState {
     cycle_lock: Mutex<()>,
     stop: AtomicBool,
 }
+
+/// Porta efêmera do servidor HTTP do dashboard de uso (0 = indisponível).
+#[derive(Debug, Clone, Copy)]
+struct DashboardPort(u16);
 
 #[derive(Debug, Deserialize)]
 struct OpenCodeAuth {
@@ -204,6 +210,20 @@ pub fn run() {
             app.manage(paths.clone());
             app.manage(shared.clone());
 
+            let dashboard_port = match usage_dashboard::start_server() {
+                Ok(port) => port,
+                Err(error) => {
+                    let _ = append_log_line(
+                        &paths,
+                        "error",
+                        "Falha ao iniciar servidor do dashboard de uso.",
+                        Some(json!({ "error": error.to_string() })),
+                    );
+                    0
+                }
+            };
+            app.manage(DashboardPort(dashboard_port));
+
             create_tray(app)?;
             refresh_tray(app.handle(), &shared)?;
             start_worker(app.handle().clone(), paths.clone(), shared.clone());
@@ -260,6 +280,13 @@ fn build_tray_menu<R: Runtime>(
     let status_item = MenuItem::with_id(app, "status", status_text, false, None::<&str>)?;
     let codex_item = MenuItem::with_id(app, "codex_status", codex_text, false, None::<&str>)?;
     let claude_item = MenuItem::with_id(app, "claude_status", claude_text, false, None::<&str>)?;
+    let open_dashboard_item = MenuItem::with_id(
+        app,
+        "open_dashboard",
+        "Dashboard de uso",
+        true,
+        None::<&str>,
+    )?;
     let open_config_item =
         MenuItem::with_id(app, "open_config", "Abrir config.json", true, None::<&str>)?;
     let open_logs_item =
@@ -276,6 +303,7 @@ fn build_tray_menu<R: Runtime>(
             &codex_item,
             &claude_item,
             &PredefinedMenuItem::separator(app)?,
+            &open_dashboard_item,
             &open_config_item,
             &open_logs_item,
             &send_now_item,
@@ -288,6 +316,17 @@ fn build_tray_menu<R: Runtime>(
 
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
     match menu_id {
+        "open_dashboard" => {
+            let port = app
+                .try_state::<DashboardPort>()
+                .map(|state| state.0)
+                .unwrap_or(0);
+            if port == 0 {
+                handle_runtime_error(app, "Servidor do dashboard de uso nao esta disponivel.");
+            } else if let Err(error) = open_url(&format!("http://127.0.0.1:{port}/")) {
+                handle_runtime_error(app, &format!("Falha ao abrir dashboard: {error}"));
+            }
+        }
         "open_config" => {
             if let Some(paths) = app.try_state::<RuntimePaths>() {
                 if let Err(error) = open_path(&paths.config_file) {
@@ -926,6 +965,29 @@ fn open_append_file(path: &Path) -> Result<File, Box<dyn std::error::Error>> {
         .create(true)
         .append(true)
         .open(path)?)
+}
+
+fn open_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Abertura de URL nao suportada neste sistema.".to_string())
 }
 
 fn open_path(path: &Path) -> Result<(), String> {
