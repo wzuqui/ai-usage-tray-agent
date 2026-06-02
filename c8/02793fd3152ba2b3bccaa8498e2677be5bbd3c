@@ -1,0 +1,39 @@
+src-tauri/src/usage_dashboard.rs
+  s_10e896c878d9a2::t_c15fc71628115b 434-451
+  s_10e896c878d9a2::t_4d7a533868c28e 1-405,454-467
+  s_10e896c878d9a2::t_4a5d9250adb21a 406-433,452-453
+src-tauri/src/lib.rs
+  s_10e896c878d9a2::t_4cf36946729104 109-112
+  s_10e896c878d9a2::t_5757197be740e5 970-992
+  s_10e896c878d9a2::t_d58761c8ff0bfd 213-226
+  s_10e896c878d9a2::t_5e1ec38a2d8ce5 306
+  s_10e896c878d9a2::t_813f6714586608 319-329
+  s_10e896c878d9a2::t_387f385b34c9bb 15-16
+  s_10e896c878d9a2::t_b9554fed7a5966 283-289
+scripts/usage-server.ts
+  s_10e896c878d9a2::t_f3de532f2e5c78 2-7,9,17-19,35-40,55-58,60,63-68,89,91-92,94,99-103,105-151,155,181-184,186,190,194,196-203,211,214,218-223,234
+  s_10e896c878d9a2::t_7d7f403301a26f 1,10-13,15-16,21-34,41-54,59,61-62,69-88,90,93,95-98,104,152-154,156-180,185,187-189,191-193,195,204-210,212-213,215-217,224-233,235-247,250-256
+  s_10e896c878d9a2::t_27566f69345473 20
+  s_10e896c878d9a2::t_49a2bf2a2b265b 8,248-249
+  s_10e896c878d9a2::t_7f8cb4437fe094 14
+package.json
+  s_10e896c878d9a2::t_87b8cde17778cf 2,10-11,13
+src-tauri/assets/usage-dashboard.html
+  s_10e896c878d9a2::t_44e97d290d32aa 1-342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c802793fd3152ba2b3bccaa8498e2677be5bbd3c",
+  "prompts": {},
+  "sessions": {
+    "s_10e896c878d9a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78f78ae8-41f9-4ff9-a07d-ce4dcb2fdeed",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Willian Zuqui <willian.zuqui@ravex.com.br>"
+    }
+  }
+}
