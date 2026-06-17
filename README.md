@@ -186,7 +186,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 O repositório já está preparado para gerar:
 
-- Windows: `.msi`
+- Windows: `.msi` (instalador) e `AiUsageTrayAgent-portable.exe` (portátil, sem instalar)
 - Linux: `AppImage`
 
 Arquivos relevantes:
