@@ -15,6 +15,7 @@ O projeto foi feito com:
 - Envia logs estruturados JSON para Loki
 - Mantém logs locais
 - Mostra status resumido no tray
+- No Windows, exibe o uso direto na barra de tarefas
 - Permite pausar, retomar e forçar envio pelo menu do tray
 
 ## Status atual
@@ -92,11 +93,72 @@ O timestamp do Loki é enviado em nanossegundos no campo `values`.
 - Status atual
 - Codex atual
 - Claude atual
+- Dashboard de uso
 - Abrir `config.json`
 - Abrir pasta de logs
 - Enviar agora
 - Pausar/retomar coleta
+- **Mostrar na barra de tarefas** (somente Windows): um item com check por IA
+  (`Codex` e `Claude`) para ligar/desligar a exibição na barra. Cada IA vem
+  marcada conforme está habilitada na `config.json`; se estiver
+  `"habilitado": false`, o item aparece desabilitado (esmaecido).
+- **Iniciar com o Windows**: item com check para ligar/desligar a inicialização
+  automática com o sistema.
 - Sair
+
+## Inicialização automática
+
+O app usa o `tauri-plugin-autostart` (chave `HKCU\...\Run` no Windows) e vem
+**habilitado por padrão na primeira execução**. Depois disso:
+
+- O estado é controlado pelo item **Iniciar com o Windows** no menu do tray.
+- Se continuar ligado, o caminho do executável é reaplicado a cada início
+  (evita apontar para um caminho antigo após atualizar/reinstalar).
+- Se o usuário desligar pelo menu, permanece desligado nas próximas execuções.
+
+## Barra de tarefas (Windows)
+
+No Windows o app desenha o uso diretamente na barra de tarefas. Cada provedor
+**habilitado** vira um elemento separado, com duas linhas: o nome e, abaixo,
+`uso da sessão (5h)` e `uso semanal (7d)`, cada um com o tempo até o reset:
+
+```text
+        Claude
+61% (3:33h) | 40% (5d)
+```
+
+- O primeiro valor é o uso da janela de 5h e quanto falta para resetar.
+- O segundo valor é o uso dos últimos 7 dias e quanto falta para resetar.
+- Provedores com `"habilitado": false` no `config.json` não aparecem na barra.
+
+Como funciona:
+
+- A Microsoft removeu o suporte a *deskbands* na barra de tarefas reescrita do
+  Windows 11, então o texto não é uma deskband COM clássica.
+- Em vez disso, o app cria uma pequena janela por provedor e a torna *filha* da
+  janela da barra (`Shell_TrayWnd`) via Win32 `SetParent`. O texto fica de fato
+  dentro da barra.
+- A cor do texto é escolhida automaticamente pela cor real da barra
+  (tema claro/escuro e *accent color*), para manter contraste.
+- A janela é reposicionada periodicamente e recriada sozinha se o Explorer
+  reiniciar.
+
+Posicionamento:
+
+- O widget fica à esquerda da área de notificação (bandeja).
+- Se houver outros widgets de terceiros embutidos na faixa direita da barra
+  (monitores de rede, etc.), o widget detecta e se ancora à esquerda deles,
+  para conviverem sem sobreposição.
+
+Limitações:
+
+- Funciona na barra padrão do Windows 11; barras modificadas
+  (ExplorerPatcher/StartAllBack) podem se comportar de forma diferente.
+- A mistura com barras translúcidas/acrílicas é aproximada (color-key), não um
+  blend perfeito.
+
+No Linux esse recurso não se aplica; o uso continua disponível no tooltip e no
+título do tray.
 
 ## Rodando localmente
 
@@ -182,6 +244,8 @@ src-tauri/
   src/
     lib.rs
     main.rs
+    usage_dashboard.rs
+    taskbar_widget.rs   # widget da barra de tarefas (somente Windows)
   tauri.conf.json
   tauri.windows.conf.json
   tauri.linux.conf.json
@@ -193,7 +257,6 @@ docs/
 
 ## Próximos passos
 
-- opção de iniciar com o sistema operacional
 - renovação e tratamento melhor de credenciais expiradas
 - mais logs de sucesso no backend
 - pacote Linux adicional como AppImage, se fizer sentido
