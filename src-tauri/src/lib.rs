@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+mod settings_panel;
 mod usage_dashboard;
 
 #[cfg(target_os = "windows")]
@@ -22,7 +23,7 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{
-    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Manager, Runtime,
 };
@@ -219,16 +220,15 @@ struct TrayMenuItems<R: Runtime> {
     codex_status: MenuItem<R>,
     claude_status: MenuItem<R>,
     toggle_pause: MenuItem<R>,
-    autostart: CheckMenuItem<R>,
-    #[cfg(target_os = "windows")]
-    taskbar_codex: CheckMenuItem<R>,
-    #[cfg(target_os = "windows")]
-    taskbar_claude: CheckMenuItem<R>,
 }
 
 /// Porta efêmera do servidor HTTP do dashboard de uso (0 = indisponível).
 #[derive(Debug, Clone, Copy)]
 struct DashboardPort(u16);
+
+/// Porta efêmera do servidor HTTP do painel de configurações (0 = indisponível).
+#[derive(Debug, Clone, Copy)]
+struct SettingsPort(u16);
 
 #[derive(Debug, Deserialize)]
 struct OpenCodeAuth {
@@ -340,6 +340,21 @@ pub fn run() {
             };
             app.manage(DashboardPort(dashboard_port));
 
+            let settings_port =
+                match settings_panel::start_server(app.handle().clone(), paths.clone()) {
+                    Ok(port) => port,
+                    Err(error) => {
+                        let _ = append_log_line(
+                            &paths,
+                            "error",
+                            "Falha ao iniciar servidor do painel de configuracoes.",
+                            Some(json!({ "error": error.to_string() })),
+                        );
+                        0
+                    }
+                };
+            app.manage(SettingsPort(settings_port));
+
             // Autostart: liga por padrao na primeira execucao (marcada por um
             // arquivo). Nas execucoes seguintes, se continuar ligado, reaplica
             // para manter o caminho do executavel atualizado; se o usuario tiver
@@ -409,35 +424,6 @@ fn tray_pause_label(snapshot: &RuntimeSnapshot) -> &'static str {
     }
 }
 
-/// Se a inicializacao automatica com o sistema esta ativa.
-fn autostart_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
-    app.autolaunch().is_enabled().unwrap_or(false)
-}
-
-/// Estado da barra de tarefas lido da config (fonte da verdade): por provider,
-/// se esta `habilitado` e se deve aparecer na barra (`mostraNaTaskbarWindows`).
-#[cfg(target_os = "windows")]
-#[derive(Clone, Copy, Default)]
-struct TaskbarFlags {
-    codex_habilitado: bool,
-    codex_mostrar: bool,
-    claude_habilitado: bool,
-    claude_mostrar: bool,
-}
-
-#[cfg(target_os = "windows")]
-fn taskbar_flags<R: Runtime>(app: &AppHandle<R>) -> TaskbarFlags {
-    app.try_state::<RuntimePaths>()
-        .and_then(|paths| load_or_create_config(paths.inner()).ok())
-        .map(|config| TaskbarFlags {
-            codex_habilitado: config.providers.codex.habilitado,
-            codex_mostrar: config.providers.codex.mostra_na_taskbar_windows,
-            claude_habilitado: config.providers.claude.habilitado,
-            claude_mostrar: config.providers.claude.mostra_na_taskbar_windows,
-        })
-        .unwrap_or_default()
-}
-
 fn build_tray_menu<R: Runtime>(
     app: &AppHandle<R>,
     snapshot: &RuntimeSnapshot,
@@ -450,6 +436,13 @@ fn build_tray_menu<R: Runtime>(
     let status_item = MenuItem::with_id(app, "status", status_text, false, None::<&str>)?;
     let codex_item = MenuItem::with_id(app, "codex_status", codex_text, false, None::<&str>)?;
     let claude_item = MenuItem::with_id(app, "claude_status", claude_text, false, None::<&str>)?;
+    let open_settings_item = MenuItem::with_id(
+        app,
+        "open_settings",
+        "Painel de configurações",
+        true,
+        None::<&str>,
+    )?;
     let open_dashboard_item = MenuItem::with_id(
         app,
         "open_dashboard",
@@ -465,81 +458,25 @@ fn build_tray_menu<R: Runtime>(
     let toggle_pause_item =
         MenuItem::with_id(app, "toggle_pause", pause_label, true, None::<&str>)?;
 
-    #[cfg(target_os = "windows")]
-    let autostart_label = "Iniciar com o Windows";
-    #[cfg(not(target_os = "windows"))]
-    let autostart_label = "Iniciar com o sistema";
-    let autostart_item = CheckMenuItem::with_id(
-        app,
-        "toggle_autostart",
-        autostart_label,
-        true,
-        autostart_enabled(app),
-        None::<&str>,
-    )?;
-
     let quit_item = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
 
     let separator_info = PredefinedMenuItem::separator(app)?;
     let separator_actions = PredefinedMenuItem::separator(app)?;
 
-    let mut items: Vec<&dyn IsMenuItem<R>> = vec![
+    let items: Vec<&dyn IsMenuItem<R>> = vec![
         &status_item,
         &codex_item,
         &claude_item,
         &separator_info,
+        &open_settings_item,
         &open_dashboard_item,
         &open_config_item,
         &open_logs_item,
         &send_now_item,
         &toggle_pause_item,
-        &autostart_item,
+        &separator_actions,
+        &quit_item,
     ];
-
-    // Toggles da barra de tarefas (recurso so do Windows). Cada IA habilitada na
-    // config vira um item com check; se desabilitada, aparece desabilitada. O
-    // estado marcado reflete `mostraNaTaskbarWindows` da config (fonte da verdade).
-    #[cfg(target_os = "windows")]
-    let flags = taskbar_flags(app);
-
-    #[cfg(target_os = "windows")]
-    let separator_taskbar = PredefinedMenuItem::separator(app)?;
-    #[cfg(target_os = "windows")]
-    let taskbar_header = MenuItem::with_id(
-        app,
-        "taskbar_header",
-        "Mostrar na barra de tarefas:",
-        false,
-        None::<&str>,
-    )?;
-    #[cfg(target_os = "windows")]
-    let taskbar_codex = CheckMenuItem::with_id(
-        app,
-        "taskbar_codex",
-        "Codex",
-        flags.codex_habilitado,
-        flags.codex_habilitado && flags.codex_mostrar,
-        None::<&str>,
-    )?;
-    #[cfg(target_os = "windows")]
-    let taskbar_claude = CheckMenuItem::with_id(
-        app,
-        "taskbar_claude",
-        "Claude",
-        flags.claude_habilitado,
-        flags.claude_habilitado && flags.claude_mostrar,
-        None::<&str>,
-    )?;
-    #[cfg(target_os = "windows")]
-    {
-        items.push(&separator_taskbar);
-        items.push(&taskbar_header);
-        items.push(&taskbar_codex);
-        items.push(&taskbar_claude);
-    }
-
-    items.push(&separator_actions);
-    items.push(&quit_item);
 
     let menu = Menu::with_items(app, &items)?;
     drop(items); // encerra os borrows antes de mover os itens para os handles
@@ -549,11 +486,6 @@ fn build_tray_menu<R: Runtime>(
         codex_status: codex_item,
         claude_status: claude_item,
         toggle_pause: toggle_pause_item,
-        autostart: autostart_item,
-        #[cfg(target_os = "windows")]
-        taskbar_codex,
-        #[cfg(target_os = "windows")]
-        taskbar_claude,
     };
 
     Ok((menu, handles))
@@ -570,10 +502,6 @@ fn update_tray_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &RuntimeSnapshot) 
     let codex = format!("Codex: {}", metric_text(snapshot.codex_metric.as_ref()));
     let claude = format!("Claude: {}", metric_text(snapshot.claude_metric.as_ref()));
     let pause = tray_pause_label(snapshot).to_string();
-    let autostart_on = autostart_enabled(app);
-
-    #[cfg(target_os = "windows")]
-    let flags = taskbar_flags(app);
 
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
@@ -584,19 +512,6 @@ fn update_tray_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &RuntimeSnapshot) 
         let _ = items.codex_status.set_text(codex);
         let _ = items.claude_status.set_text(claude);
         let _ = items.toggle_pause.set_text(pause);
-        let _ = items.autostart.set_checked(autostart_on);
-
-        #[cfg(target_os = "windows")]
-        {
-            let _ = items.taskbar_codex.set_enabled(flags.codex_habilitado);
-            let _ = items
-                .taskbar_codex
-                .set_checked(flags.codex_habilitado && flags.codex_mostrar);
-            let _ = items.taskbar_claude.set_enabled(flags.claude_habilitado);
-            let _ = items
-                .taskbar_claude
-                .set_checked(flags.claude_habilitado && flags.claude_mostrar);
-        }
     });
 }
 
@@ -611,6 +526,17 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
                 handle_runtime_error(app, "Servidor do dashboard de uso nao esta disponivel.");
             } else if let Err(error) = open_url(&format!("http://127.0.0.1:{port}/")) {
                 handle_runtime_error(app, &format!("Falha ao abrir dashboard: {error}"));
+            }
+        }
+        "open_settings" => {
+            let port = app
+                .try_state::<SettingsPort>()
+                .map(|state| state.0)
+                .unwrap_or(0);
+            if port == 0 {
+                handle_runtime_error(app, "Servidor do painel de configuracoes nao esta disponivel.");
+            } else if let Err(error) = open_url(&format!("http://127.0.0.1:{port}/")) {
+                handle_runtime_error(app, &format!("Falha ao abrir painel de configuracoes: {error}"));
             }
         }
         "open_config" => {
@@ -629,25 +555,6 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
         }
         "send_now" => {
             trigger_collection(app);
-        }
-        "taskbar_codex" => {
-            toggle_taskbar_provider(app, "codex");
-        }
-        "taskbar_claude" => {
-            toggle_taskbar_provider(app, "claude");
-        }
-        "toggle_autostart" => {
-            let manager = app.autolaunch();
-            let result = if manager.is_enabled().unwrap_or(false) {
-                manager.disable()
-            } else {
-                manager.enable()
-            };
-            if let Err(error) = result {
-                handle_runtime_error(app, &format!("Falha ao alterar inicializacao automatica: {error}"));
-            } else if let Some(shared) = app.try_state::<Arc<SharedState>>() {
-                let _ = refresh_tray(app, &shared);
-            }
         }
         "toggle_pause" => {
             if let Some(shared) = app.try_state::<Arc<SharedState>>() {
@@ -669,43 +576,6 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
             app.exit(0);
         }
         _ => {}
-    }
-}
-
-/// Alterna a exibicao de um provider na barra de tarefas, persistindo a
-/// preferencia no `config.json` (fonte da verdade) e atualizando o tray.
-fn toggle_taskbar_provider<R: Runtime>(app: &AppHandle<R>, provider: &str) {
-    let Some(paths) = app.try_state::<RuntimePaths>() else {
-        return;
-    };
-
-    let mut config = match load_or_create_config(paths.inner()) {
-        Ok(config) => config,
-        Err(error) => {
-            handle_runtime_error(app, &format!("Falha ao ler config: {error}"));
-            return;
-        }
-    };
-
-    match provider {
-        "codex" => {
-            config.providers.codex.mostra_na_taskbar_windows =
-                !config.providers.codex.mostra_na_taskbar_windows
-        }
-        "claude" => {
-            config.providers.claude.mostra_na_taskbar_windows =
-                !config.providers.claude.mostra_na_taskbar_windows
-        }
-        _ => return,
-    }
-
-    if let Err(error) = write_config(paths.inner(), &config) {
-        handle_runtime_error(app, &format!("Falha ao salvar preferencia da barra: {error}"));
-        return;
-    }
-
-    if let Some(shared) = app.try_state::<Arc<SharedState>>() {
-        let _ = refresh_tray(app, &shared);
     }
 }
 
@@ -736,13 +606,7 @@ fn start_worker<R: Runtime + 'static>(
             break;
         }
 
-        let interval = match load_or_create_config(&paths) {
-            Ok(config) => config.intervalo_segundos.clamp(5, 3600),
-            Err(error) => {
-                handle_runtime_error(&app, &format!("Falha ao carregar config: {error}"));
-                10
-            }
-        };
+        let mut interval = current_interval(&app, &paths);
 
         let paused = shared.snapshot.lock().unwrap().paused;
         if !paused {
@@ -751,13 +615,55 @@ fn start_worker<R: Runtime + 'static>(
             let _ = refresh_tray(&app, &shared);
         }
 
-        for _ in 0..interval {
+        // Espera ate o proximo ciclo de coleta. A thread ja acordava a cada
+        // segundo (para reagir ao stop); aproveitamos esse tick para checar, via
+        // mtime, se o config.json foi editado. Se mudou, aplicamos a nova config
+        // na hora com refresh_tray (posicao na barra, fonte, cor, lado,
+        // visibilidade dos provedores e o proprio intervalo) — SEM disparar um
+        // envio extra ao Loki. Assim a edicao vale em ~1s sem reduzir o intervalo
+        // de envio. A checagem le so o metadado (stat), nao o conteudo; o arquivo
+        // so e' lido/parseado quando o mtime realmente muda.
+        let mut last_mtime = config_mtime(&paths);
+        let mut elapsed = 0u64;
+        while elapsed < interval {
             if shared.stop.load(Ordering::Relaxed) {
                 break;
             }
             thread::sleep(Duration::from_secs(1));
+            elapsed += 1;
+
+            let current = config_mtime(&paths);
+            if current != last_mtime {
+                let _ = refresh_tray(&app, &shared);
+                interval = current_interval(&app, &paths);
+                // Re-le o mtime apos aplicar: refresh_tray/normalizacao podem
+                // reescrever o arquivo, e nao queremos tratar a propria escrita
+                // como uma nova edicao externa.
+                last_mtime = config_mtime(&paths);
+            }
         }
     });
+}
+
+/// Le o intervalo de coleta (segundos) do config.json, com clamp 5..=3600 e
+/// fallback de 10s em caso de erro de leitura.
+fn current_interval<R: Runtime>(app: &AppHandle<R>, paths: &RuntimePaths) -> u64 {
+    match load_or_create_config(paths) {
+        Ok(config) => config.intervalo_segundos.clamp(5, 3600),
+        Err(error) => {
+            handle_runtime_error(app, &format!("Falha ao carregar config: {error}"));
+            10
+        }
+    }
+}
+
+/// Data de modificacao do config.json, usada para detectar edicoes externas.
+/// `None` quando o arquivo nao pode ser lido (ex.: durante um save atomico do
+/// editor); a comparacao com o valor anterior ainda detecta a transicao.
+fn config_mtime(paths: &RuntimePaths) -> Option<std::time::SystemTime> {
+    fs::metadata(&paths.config_file)
+        .and_then(|meta| meta.modified())
+        .ok()
 }
 
 fn run_collection_cycle<R: Runtime>(

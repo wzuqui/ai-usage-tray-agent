@@ -33,6 +33,12 @@ MVP funcional com:
 
 O app cria e lê `config.json` automaticamente.
 
+As edições no arquivo são aplicadas **em ~1s, sem reiniciar**: o app detecta a
+mudança pelo `mtime` durante a espera entre coletas e reaplica a configuração na
+hora (posição/fonte/cor da barra, lado, visibilidade dos provedores e o próprio
+`intervaloSegundos`). Isso **não** dispara um envio extra ao Loki — o intervalo
+de envio é preservado.
+
 Windows:
 
 - Config: `%AppData%/AiUsageTrayAgent/config.json`
@@ -101,30 +107,47 @@ O timestamp do Loki é enviado em nanossegundos no campo `values`.
 - Status atual
 - Codex atual
 - Claude atual
+- **Painel de configurações**: abre no navegador uma tela com **todas as opções
+  do `config.json`** (mais o "iniciar com o sistema"). Veja abaixo.
 - Dashboard de uso
 - Abrir `config.json`
 - Abrir pasta de logs
 - Enviar agora
 - Pausar/retomar coleta
-- **Mostrar na barra de tarefas** (somente Windows): um item com check por IA
-  (`Codex` e `Claude`) para ligar/desligar a exibição na barra. O estado de cada
-  item reflete o campo `mostraNaTaskbarWindows` da `config.json` (que é a fonte
-  da verdade) e a alteração é **salva no arquivo**, então a escolha persiste
-  entre reinícios. Se a IA estiver `"habilitado": false`, o item aparece
-  desabilitado (esmaecido) e nunca é exibido na barra.
-- **Iniciar com o Windows**: item com check para ligar/desligar a inicialização
-  automática com o sistema.
 - Sair
+
+> A exibição de cada IA na barra de tarefas e a inicialização automática deixaram
+> de ser itens do tray; agora são editadas no **Painel de configurações**.
+
+## Painel de configurações
+
+O item **Painel de configurações** abre uma página local (servida em
+`127.0.0.1`, mesma abordagem do dashboard) com um formulário que cobre **todas as
+opções do `config.json`**:
+
+- **Geral**: `usuario`, `intervaloSegundos`, `loki.url`.
+- **Codex**: `habilitado`, `authJsonPath`, `mostraNaTaskbarWindows`.
+- **Claude**: `habilitado`, `organizationId`, `cookie` (com mostrar/ocultar),
+  `mostraNaTaskbarWindows`.
+- **Barra de tarefas** (Windows): `lado`, `deslocamento`, `tamanhoFonte`,
+  `corFonte` (com seletor de cor).
+- **Sistema**: **Iniciar com o sistema** (autostart) — não fica no `config.json`,
+  é gerenciado pelo `tauri-plugin-autostart`.
+
+Ao salvar, o `config.json` é gravado (com normalização: clamp de intervalo/fonte,
+validação de cor) e o app aplica tudo em ~1s, **sem reiniciar e sem disparar um
+envio extra** ao Loki. O autostart é aplicado na hora.
 
 ## Inicialização automática
 
 O app usa o `tauri-plugin-autostart` (chave `HKCU\...\Run` no Windows) e vem
 **habilitado por padrão na primeira execução**. Depois disso:
 
-- O estado é controlado pelo item **Iniciar com o Windows** no menu do tray.
+- O estado é controlado pela opção **Iniciar com o sistema** no Painel de
+  configurações.
 - Se continuar ligado, o caminho do executável é reaplicado a cada início
   (evita apontar para um caminho antigo após atualizar/reinstalar).
-- Se o usuário desligar pelo menu, permanece desligado nas próximas execuções.
+- Se o usuário desligar pelo painel, permanece desligado nas próximas execuções.
 
 ## Barra de tarefas (Windows)
 
@@ -141,10 +164,10 @@ No Windows o app desenha o uso diretamente na barra de tarefas. Cada provedor
 - O segundo valor é o uso dos últimos 7 dias e quanto falta para resetar.
 - Provedores com `"habilitado": false` no `config.json` não aparecem na barra.
 - A exibição de cada provedor na barra é controlada por
-  `providers.<ia>.mostraNaTaskbarWindows` (padrão `true`). Você pode editar esse
-  valor direto no `config.json` (vale no próximo ciclo) ou pelo item **Mostrar na
-  barra de tarefas** do menu do tray (salva na hora). Só aparece na barra quando
-  `habilitado` **e** `mostraNaTaskbarWindows` forem `true`.
+  `providers.<ia>.mostraNaTaskbarWindows` (padrão `true`). Você pode alterar isso
+  pelo **Painel de configurações** ou editando o `config.json` direto; nos dois
+  casos vale em ~1s. Só aparece na barra quando `habilitado` **e**
+  `mostraNaTaskbarWindows` forem `true`.
 - Em Linux/macOS o campo `mostraNaTaskbarWindows` é lido mas **ignorado**: o
   widget da barra de tarefas só existe no Windows. O campo é mantido no arquivo
   para que a mesma `config.json` seja portável entre sistemas.
@@ -187,9 +210,9 @@ Aparência (fonte):
 - `barraTarefas.corFonte`: `"auto"` (padrão — preto em barra clara, branco em
   barra escura, conforme a cor real da barra) ou um hex `"#RRGGBB"` (ex.:
   `"#FFD700"`). Valores inválidos voltam para `"auto"`.
-- Ambos são aplicados no próximo ciclo (~1s) ao editar o `config.json`, sem
-  reiniciar. Evite uma `corFonte` igual à cor da barra (o fundo é transparente
-  por *color-key*, então o texto sumiria).
+- Ambos são aplicados em ~1s ao editar o `config.json`, sem reiniciar. Evite uma
+  `corFonte` igual à cor da barra (o fundo é transparente por *color-key*, então
+  o texto sumiria).
 
 Limitações:
 
@@ -286,7 +309,11 @@ src-tauri/
     lib.rs
     main.rs
     usage_dashboard.rs
+    settings_panel.rs   # servidor do painel de configuracoes (GET/POST)
     taskbar_widget.rs   # widget da barra de tarefas (somente Windows)
+  assets/
+    usage-dashboard.html
+    settings-panel.html # formulario do painel de configuracoes
   tauri.conf.json
   tauri.windows.conf.json
   tauri.linux.conf.json

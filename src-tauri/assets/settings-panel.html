@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configurações — AiUsageTrayAgent</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1a1915; color: #e8e6e1; font: 15px/1.4 'Segoe UI', system-ui, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 24px 96px; }
+  h1 { font-size: 26px; font-weight: 600; display: flex; align-items: center; gap: 10px; margin: 0 0 4px; }
+  h1 .spark { color: #d97757; }
+  .sub { color: #9a968d; font-size: 14px; margin: 0 0 8px; }
+  .layout { display: grid; grid-template-columns: 210px 1fr; gap: 18px; align-items: start; margin-top: 18px; }
+  .nav { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 20px; }
+  .nav button { text-align: left; background: transparent; border: none; color: #9a968d; font: inherit; font-size: 14.5px; padding: 10px 13px; border-radius: 9px; cursor: pointer; }
+  .nav button:hover { background: #2a2926; color: #e8e6e1; }
+  .nav button.on { background: #3a3833; color: #fff; font-weight: 600; }
+  .content { min-width: 0; }
+  .panel { background: #232220; border: 1px solid #34322d; border-radius: 14px; padding: 18px 18px 8px; }
+  .section { display: none; }
+  .section.on { display: block; }
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: 1fr; }
+    .nav { flex-direction: row; flex-wrap: wrap; position: static; }
+  }
+  .panel h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; color: #f0eee9; }
+  .panel .hint { color: #9a968d; font-size: 13px; margin: 0 0 14px; }
+  .field { margin-bottom: 16px; }
+  .field > label { display: block; font-size: 14px; color: #c9c5bc; margin-bottom: 6px; }
+  .field .desc { color: #807c74; font-size: 12.5px; margin-top: 5px; }
+  input[type=text], input[type=number], input[type=password], textarea, select {
+    width: 100%; background: #1c1b18; border: 1px solid #3a3833; border-radius: 9px;
+    color: #e8e6e1; font: inherit; font-size: 14px; padding: 9px 11px; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: #d97757; }
+  textarea { resize: vertical; min-height: 64px; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 13px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > .field { flex: 1; min-width: 130px; }
+  .check { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .check input { width: 18px; height: 18px; accent-color: #d97757; flex: none; cursor: pointer; }
+  .check span { font-size: 14px; color: #e8e6e1; }
+  .inline { display: flex; gap: 10px; align-items: center; }
+  .inline input[type=color] { width: 44px; height: 38px; padding: 2px; background: #1c1b18; border: 1px solid #3a3833; border-radius: 9px; cursor: pointer; }
+  .btn { background: transparent; border: 1px solid #3a3833; color: #c9c5bc; font: inherit; font-size: 14px;
+    padding: 8px 14px; border-radius: 9px; cursor: pointer; }
+  .btn:hover { background: #2e2d29; }
+  .btn.link { padding: 8px 0; border: none; color: #9a968d; }
+  .btn-show { padding: 6px 10px; font-size: 12.5px; white-space: nowrap; }
+  .winonly { color: #6f6c64; font-size: 11px; border: 1px solid #34322d; border-radius: 6px; padding: 1px 6px; margin-left: 8px; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: #1f1e1b; border-top: 1px solid #34322d;
+    padding: 12px 20px; display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
+  .bar .grow { margin-right: auto; }
+  .save { background: #d97757; border: 1px solid #d97757; color: #1a1915; font-weight: 600; }
+  .save:hover { background: #e08a6d; }
+  .save:disabled { opacity: .55; cursor: default; }
+  .msg { font-size: 13.5px; }
+  .msg.ok { color: #7fc99a; }
+  .msg.err { color: #e0816f; }
+  .loading { color: #9a968d; padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="spark">✳</span> Painel de configurações</h1>
+  <p class="sub">As alterações são salvas no <code>config.json</code> e aplicadas pelo app em ~1s, sem reiniciar.</p>
+
+  <div id="form" hidden>
+    <div class="layout">
+      <nav class="nav">
+        <button type="button" class="on" data-target="geral">Geral</button>
+        <button type="button" data-target="codex">Codex</button>
+        <button type="button" data-target="claude">Claude</button>
+        <button type="button" data-target="barra">Barra de tarefas</button>
+        <button type="button" data-target="sistema">Sistema</button>
+      </nav>
+
+      <div class="content">
+        <div class="panel section on" data-section="geral">
+          <h2>Geral</h2>
+          <p class="hint">Identificação e cadência de coleta/envio.</p>
+          <div class="row">
+            <div class="field">
+              <label for="usuario">Usuário</label>
+              <input type="text" id="usuario" placeholder="seu-usuario">
+              <div class="desc">Rótulo <code>usuario</code> enviado ao Loki. Vazio vira "desconhecido".</div>
+            </div>
+            <div class="field">
+              <label for="intervalo">Intervalo de coleta (s)</label>
+              <input type="number" id="intervalo" min="5" max="3600" step="1">
+              <div class="desc">Entre 5 e 3600. Período entre coletas/envios.</div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="lokiUrl">URL do Loki</label>
+            <input type="text" id="lokiUrl" placeholder="http://loki.exemplo.local:3100/loki/api/v1/push">
+            <div class="desc">Endpoint de <code>push</code> do Loki. Vazio desativa o envio.</div>
+          </div>
+        </div>
+
+        <div class="panel section" data-section="codex">
+          <h2>Codex</h2>
+          <p class="hint">Coleta o uso do Codex a partir do <code>auth.json</code>.</p>
+          <div class="row">
+            <div class="field">
+              <label class="check"><input type="checkbox" id="codexHabilitado"><span>Habilitado</span></label>
+            </div>
+            <div class="field">
+              <label class="check"><input type="checkbox" id="codexTaskbar"><span>Mostrar na barra<span class="winonly">Windows</span></span></label>
+            </div>
+          </div>
+          <div class="field">
+            <label for="codexAuth">Caminho do auth.json</label>
+            <input type="text" id="codexAuth" placeholder="C:\Users\usuario\.codex\auth.json">
+          </div>
+        </div>
+
+        <div class="panel section" data-section="claude">
+          <h2>Claude</h2>
+          <p class="hint">Coleta o uso do Claude usando <code>organizationId</code> e o cookie de sessão.</p>
+          <div class="row">
+            <div class="field">
+              <label class="check"><input type="checkbox" id="claudeHabilitado"><span>Habilitado</span></label>
+            </div>
+            <div class="field">
+              <label class="check"><input type="checkbox" id="claudeTaskbar"><span>Mostrar na barra<span class="winonly">Windows</span></span></label>
+            </div>
+          </div>
+          <div class="field">
+            <label for="claudeOrg">Organization ID</label>
+            <input type="text" id="claudeOrg" placeholder="org_...">
+          </div>
+          <div class="field">
+            <label for="claudeCookie">Cookie de sessão</label>
+            <div class="inline">
+              <input type="password" id="claudeCookie" placeholder="sessionKey=...">
+              <button type="button" class="btn btn-show" id="cookieToggle">Mostrar</button>
+            </div>
+            <div class="desc">Ex.: <code>sessionKey=...</code>. Se o cookie expirar, atualize aqui.</div>
+          </div>
+        </div>
+
+        <div class="panel section" data-section="barra">
+          <h2>Barra de tarefas<span class="winonly">Windows</span></h2>
+          <p class="hint">Aparência e posição do widget desenhado na barra (ignorado em Linux/macOS).</p>
+          <div class="row">
+            <div class="field">
+              <label for="barraLado">Lado</label>
+              <select id="barraLado">
+                <option value="direita">Direita</option>
+                <option value="esquerda">Esquerda</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="barraDeslocamento">Deslocamento (px)</label>
+              <input type="number" id="barraDeslocamento" step="1">
+              <div class="desc">Negativo desloca o widget para a <strong>esquerda</strong>; positivo, para a <strong>direita</strong>.</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="barraFonte">Tamanho da fonte (pt)</label>
+              <input type="number" id="barraFonte" min="6" max="24" step="1">
+            </div>
+            <div class="field">
+              <label for="barraCor">Cor da fonte</label>
+              <div class="inline">
+                <input type="text" id="barraCor" placeholder="auto ou #RRGGBB">
+                <input type="color" id="barraCorPicker" value="#ffffff" title="Escolher cor">
+              </div>
+              <div class="desc"><code>auto</code> = preto/branco conforme a barra, ou um hex (ex.: <code>#FFD700</code>).</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel section" data-section="sistema">
+          <h2>Sistema</h2>
+          <p class="hint">Integração com o sistema operacional.</p>
+          <div class="field">
+            <label class="check"><input type="checkbox" id="autostart"><span id="autostartLabel">Iniciar com o sistema</span></label>
+            <div class="desc">Inicia o app automaticamente no login.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">Carregando configurações…</div>
+</div>
+
+<div class="bar">
+  <span id="msg" class="msg grow"></span>
+  <button type="button" class="btn" id="reload">Recarregar</button>
+  <button type="button" class="save btn" id="save" disabled>Salvar</button>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let OS = '';
+
+function fillForm(data) {
+  const c = data.config || {};
+  const codex = (c.providers && c.providers.codex) || {};
+  const claude = (c.providers && c.providers.claude) || {};
+  const barra = c.barraTarefas || {};
+
+  $('usuario').value = c.usuario ?? '';
+  $('intervalo').value = c.intervaloSegundos ?? 10;
+  $('lokiUrl').value = (c.loki && c.loki.url) || '';
+
+  $('codexHabilitado').checked = codex.habilitado !== false;
+  $('codexAuth').value = codex.authJsonPath ?? '';
+  $('codexTaskbar').checked = codex.mostraNaTaskbarWindows !== false;
+
+  $('claudeHabilitado').checked = claude.habilitado !== false;
+  $('claudeOrg').value = claude.organizationId ?? '';
+  $('claudeCookie').value = claude.cookie ?? '';
+  $('claudeTaskbar').checked = claude.mostraNaTaskbarWindows !== false;
+
+  $('barraLado').value = barra.lado === 'esquerda' ? 'esquerda' : 'direita';
+  $('barraDeslocamento').value = barra.deslocamento ?? 0;
+  $('barraFonte').value = barra.tamanhoFonte ?? 9;
+  $('barraCor').value = barra.corFonte ?? 'auto';
+  syncColorPicker();
+
+  $('autostart').checked = !!data.autostart;
+  OS = data.os || '';
+  if (data.autostartLabel) $('autostartLabel').textContent = data.autostartLabel;
+}
+
+function collect() {
+  let intervalo = parseInt($('intervalo').value, 10);
+  if (!Number.isFinite(intervalo)) intervalo = 10;
+  let deslocamento = parseInt($('barraDeslocamento').value, 10);
+  if (!Number.isFinite(deslocamento)) deslocamento = 0;
+  let fonte = parseInt($('barraFonte').value, 10);
+  if (!Number.isFinite(fonte)) fonte = 9;
+
+  const config = {
+    usuario: $('usuario').value.trim(),
+    intervaloSegundos: intervalo,
+    loki: { url: $('lokiUrl').value.trim() },
+    providers: {
+      codex: {
+        habilitado: $('codexHabilitado').checked,
+        mostraNaTaskbarWindows: $('codexTaskbar').checked,
+        authJsonPath: $('codexAuth').value.trim(),
+      },
+      claude: {
+        habilitado: $('claudeHabilitado').checked,
+        mostraNaTaskbarWindows: $('claudeTaskbar').checked,
+        organizationId: $('claudeOrg').value.trim(),
+        cookie: $('claudeCookie').value.trim(),
+      },
+    },
+    barraTarefas: {
+      lado: $('barraLado').value,
+      deslocamento: deslocamento,
+      tamanhoFonte: fonte,
+      corFonte: $('barraCor').value.trim() || 'auto',
+    },
+  };
+  return { config, autostart: $('autostart').checked };
+}
+
+function syncColorPicker() {
+  const v = $('barraCor').value.trim();
+  if (/^#?[0-9a-fA-F]{6}$/.test(v)) {
+    $('barraCorPicker').value = '#' + v.replace(/^#/, '');
+  }
+}
+
+function setMsg(text, kind) {
+  const el = $('msg');
+  el.textContent = text;
+  el.className = 'msg grow' + (kind ? ' ' + kind : '');
+}
+
+async function load() {
+  setMsg('');
+  try {
+    const res = await fetch('/api/settings', { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    fillForm(data);
+    $('loading').hidden = true;
+    $('form').hidden = false;
+    $('save').disabled = false;
+  } catch (e) {
+    $('loading').textContent = 'Falha ao carregar configurações: ' + e.message;
+  }
+}
+
+async function save() {
+  $('save').disabled = true;
+  setMsg('Salvando…');
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collect()),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    fillForm(data);
+    setMsg('Salvo. Aplicado em ~1s.', 'ok');
+  } catch (e) {
+    setMsg('Erro ao salvar: ' + e.message, 'err');
+  } finally {
+    $('save').disabled = false;
+  }
+}
+
+function activate(target) {
+  document.querySelectorAll('.nav button').forEach((b) => b.classList.toggle('on', b.dataset.target === target));
+  document.querySelectorAll('.section').forEach((s) => s.classList.toggle('on', s.dataset.section === target));
+}
+document.querySelectorAll('.nav button').forEach((b) =>
+  b.addEventListener('click', () => activate(b.dataset.target)));
+
+$('cookieToggle').addEventListener('click', () => {
+  const input = $('claudeCookie');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  $('cookieToggle').textContent = show ? 'Ocultar' : 'Mostrar';
+});
+$('barraCor').addEventListener('input', syncColorPicker);
+$('barraCorPicker').addEventListener('input', () => { $('barraCor').value = $('barraCorPicker').value; });
+$('save').addEventListener('click', save);
+$('reload').addEventListener('click', load);
+
+load();
+</script>
+</body>
+</html>
