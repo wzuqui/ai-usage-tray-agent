@@ -114,6 +114,14 @@ O timestamp do Loki é enviado em nanossegundos no campo `values`.
 - Abrir pasta de logs
 - Enviar agora
 - Pausar/retomar coleta
+- **Mostrar na barra de tarefas** (somente Windows): um item com check por IA
+  (`Codex` e `Claude`) para ligar/desligar a exibição na barra. O estado de cada
+  item reflete o campo `mostraNaTaskbarWindows` da `config.json` (que é a fonte
+  da verdade) e a alteração é **salva no arquivo**, então a escolha persiste
+  entre reinícios. Se a IA estiver `"habilitado": false`, o item aparece
+  desabilitado (esmaecido) e nunca é exibido na barra.
+- **Iniciar com o Windows**: item com check para ligar/desligar a inicialização
+  automática com o sistema.
 - Sair
 
 > A exibição de cada IA na barra de tarefas e a inicialização automática deixaram
