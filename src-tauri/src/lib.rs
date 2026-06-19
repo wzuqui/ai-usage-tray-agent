@@ -300,7 +300,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             usage_dashboard::get_stats,
             get_settings,
-            save_settings
+            save_settings,
+            get_usage,
+            force_collect
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes). Comeca escondida
@@ -432,6 +434,51 @@ fn save_settings(
         .map_err(|error| format!("falha ao salvar config.json: {error}"))?;
     apply_autostart(&app, settings.autostart);
     Ok(settings_value(&app, paths.inner()))
+}
+
+/// Estado de uso exposto a' tela "Uso atual": as metricas atuais de cada
+/// provider (a mesma fonte do tray e da barra de tarefas), mais se cada um esta'
+/// habilitado e se a coleta esta' pausada. Nao faz rede: le' apenas o snapshot
+/// ja' coletado pelo worker.
+fn usage_value(paths: &RuntimePaths, shared: &Arc<SharedState>) -> Value {
+    let snapshot = shared.snapshot.lock().unwrap().clone();
+    let config = load_or_create_config(paths).unwrap_or_default();
+    json!({
+        "paused": snapshot.paused,
+        "lastError": snapshot.last_error,
+        "claude": {
+            "habilitado": config.providers.claude.habilitado,
+            "metric": snapshot.claude_metric,
+        },
+        "codex": {
+            "habilitado": config.providers.codex.habilitado,
+            "metric": snapshot.codex_metric,
+        },
+    })
+}
+
+/// Le' o uso atual (snapshot) para a tela "Uso atual". Barato e sem rede; pode
+/// ser chamado ao abrir/focar a janela.
+#[tauri::command]
+fn get_usage(paths: State<'_, RuntimePaths>, shared: State<'_, Arc<SharedState>>) -> Value {
+    usage_value(paths.inner(), shared.inner())
+}
+
+/// Forca uma coleta nova (igual ao "Enviar agora" do tray: tambem envia ao Loki)
+/// e devolve o uso ja' atualizado, para a tela mostrar o resultado assim que
+/// termina. Roda em `spawn_blocking` para nao travar a main thread: a coleta usa
+/// rede sincrona (ate' ~15s de timeout). O erro do ciclo, se houver, ja' fica
+/// refletido no proprio snapshot (status/erro por provider).
+#[tauri::command]
+async fn force_collect(app: AppHandle) -> Value {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = app.state::<RuntimePaths>().inner().clone();
+        let shared = app.state::<Arc<SharedState>>().inner().clone();
+        let _ = run_collection_cycle(&app, &paths, &shared);
+        usage_value(&paths, &shared)
+    })
+    .await
+    .unwrap_or_else(|error| json!({ "error": error.to_string() }))
 }
 
 fn create_tray<R: Runtime>(app: &mut tauri::App<R>) -> tauri::Result<()> {
