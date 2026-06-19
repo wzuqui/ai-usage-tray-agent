@@ -556,25 +556,6 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
         "send_now" => {
             trigger_collection(app);
         }
-        "taskbar_codex" => {
-            toggle_taskbar_provider(app, "codex");
-        }
-        "taskbar_claude" => {
-            toggle_taskbar_provider(app, "claude");
-        }
-        "toggle_autostart" => {
-            let manager = app.autolaunch();
-            let result = if manager.is_enabled().unwrap_or(false) {
-                manager.disable()
-            } else {
-                manager.enable()
-            };
-            if let Err(error) = result {
-                handle_runtime_error(app, &format!("Falha ao alterar inicializacao automatica: {error}"));
-            } else if let Some(shared) = app.try_state::<Arc<SharedState>>() {
-                let _ = refresh_tray(app, &shared);
-            }
-        }
         "toggle_pause" => {
             if let Some(shared) = app.try_state::<Arc<SharedState>>() {
                 {
@@ -595,43 +576,6 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
             app.exit(0);
         }
         _ => {}
-    }
-}
-
-/// Alterna a exibicao de um provider na barra de tarefas, persistindo a
-/// preferencia no `config.json` (fonte da verdade) e atualizando o tray.
-fn toggle_taskbar_provider<R: Runtime>(app: &AppHandle<R>, provider: &str) {
-    let Some(paths) = app.try_state::<RuntimePaths>() else {
-        return;
-    };
-
-    let mut config = match load_or_create_config(paths.inner()) {
-        Ok(config) => config,
-        Err(error) => {
-            handle_runtime_error(app, &format!("Falha ao ler config: {error}"));
-            return;
-        }
-    };
-
-    match provider {
-        "codex" => {
-            config.providers.codex.mostra_na_taskbar_windows =
-                !config.providers.codex.mostra_na_taskbar_windows
-        }
-        "claude" => {
-            config.providers.claude.mostra_na_taskbar_windows =
-                !config.providers.claude.mostra_na_taskbar_windows
-        }
-        _ => return,
-    }
-
-    if let Err(error) = write_config(paths.inner(), &config) {
-        handle_runtime_error(app, &format!("Falha ao salvar preferencia da barra: {error}"));
-        return;
-    }
-
-    if let Some(shared) = app.try_state::<Arc<SharedState>>() {
-        let _ = refresh_tray(app, &shared);
     }
 }
 
