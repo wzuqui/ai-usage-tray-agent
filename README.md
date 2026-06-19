@@ -76,7 +76,8 @@ Exemplo:
     "lado": "direita",
     "deslocamento": 0,
     "tamanhoFonte": 9,
-    "corFonte": "auto"
+    "corFonte": "auto",
+    "formatoReset": "restante"
   }
 }
 ```
@@ -157,7 +158,8 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
 - **Claude**: `habilitado`, `organizationId`, `cookie` (com mostrar/ocultar).
 - **Barra de tarefas** (Windows): exibir cada provedor na barra
   (`providers.<ia>.mostraNaTaskbarWindows`), `lado`, `deslocamento`,
-  `tamanhoFonte`, `corFonte` (com seletor de cor).
+  `tamanhoFonte`, `corFonte` (com seletor de cor) e `formatoReset` (tempo
+  restante ou hora/data exata).
 - **Sistema**: **Iniciar com o sistema** (autostart) — não fica no `config.json`,
   é gerenciado pelo `tauri-plugin-autostart`.
 
@@ -239,6 +241,10 @@ Aparência (fonte):
 - `barraTarefas.corFonte`: `"auto"` (padrão — preto em barra clara, branco em
   barra escura, conforme a cor real da barra) ou um hex `"#RRGGBB"` (ex.:
   `"#FFD700"`). Valores inválidos voltam para `"auto"`.
+- `barraTarefas.formatoReset`: como o reset aparece no widget. `"restante"`
+  (padrão) mostra o tempo regressivo (ex.: `33% (4:19h) | 68% (2d)`); `"exato"`
+  mostra a hora/data do reset em horário local — só a hora se for hoje, ou com a
+  data se for outro dia (ex.: `33% (19:20) | 68% (22/06, 19:59)`).
 - Ambos são aplicados em ~1s ao editar o `config.json`, sem reiniciar. Evite uma
   `corFonte` igual à cor da barra (o fundo é transparente por *color-key*, então
   o texto sumiria).

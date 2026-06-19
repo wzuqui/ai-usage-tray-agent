@@ -67,6 +67,9 @@ struct TaskbarConfig {
     /// Cor da fonte: "auto" (padrao, preto/branco conforme a cor da barra) ou um
     /// hex "#RRGGBB" (ex.: "#FFD700"). Valores invalidos voltam a "auto".
     cor_fonte: String,
+    /// Como exibir o reset no widget: "restante" (padrao, tempo regressivo ex.:
+    /// "2:36h") ou "exato" (hora/data do reset ex.: "19:20" ou "22/06, 19:59").
+    formato_reset: String,
 }
 
 impl Default for TaskbarConfig {
@@ -76,6 +79,7 @@ impl Default for TaskbarConfig {
             deslocamento: 0,
             tamanho_fonte: 9,
             cor_fonte: "auto".to_string(),
+            formato_reset: "restante".to_string(),
         }
     }
 }
@@ -87,6 +91,15 @@ impl TaskbarConfig {
         matches!(
             self.lado.trim().to_ascii_lowercase().as_str(),
             "esquerda" | "esquerdo" | "left" | "e"
+        )
+    }
+
+    /// `true` se o reset deve ser exibido como hora/data exata em vez do tempo
+    /// restante (aceita variacoes comuns).
+    fn mostrar_hora_reset(&self) -> bool {
+        matches!(
+            self.formato_reset.trim().to_ascii_lowercase().as_str(),
+            "exato" | "exata" | "hora" | "horario" | "data" | "absoluto"
         )
     }
 
@@ -1145,17 +1158,18 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
                     taskbar_widget::set_side(config.barra_tarefas.lado_esquerdo());
                     taskbar_widget::set_font_size(config.barra_tarefas.tamanho_fonte_pt());
                     taskbar_widget::set_font_color(config.barra_tarefas.cor_fonte_rgb());
+                    let mostrar_hora = config.barra_tarefas.mostrar_hora_reset();
                     taskbar_widget::set_provider(
                         "codex",
                         config.providers.codex.habilitado
                             && config.providers.codex.mostra_na_taskbar_windows,
-                        widget_detail(snapshot.codex_metric.as_ref()),
+                        widget_detail(snapshot.codex_metric.as_ref(), mostrar_hora),
                     );
                     taskbar_widget::set_provider(
                         "claude",
                         config.providers.claude.habilitado
                             && config.providers.claude.mostra_na_taskbar_windows,
-                        widget_detail(snapshot.claude_metric.as_ref()),
+                        widget_detail(snapshot.claude_metric.as_ref(), mostrar_hora),
                     );
                 }
             }
@@ -1247,11 +1261,12 @@ fn metric_text(metric: Option<&UsageMetric>) -> String {
     }
 }
 
-/// Linha de detalhe do widget da barra de tarefas no formato
-/// `20% (2:36h) | 50% (2d)` — uso da sessao (5h) e reset, e uso semanal (7d) e
-/// reset. Mostra apenas a parte da sessao quando nao ha dados de 7 dias.
+/// Linha de detalhe do widget da barra de tarefas. Com `mostrar_hora = false`
+/// usa o tempo restante (`20% (2:36h) | 50% (2d)`); com `true` usa a hora/data
+/// exata do reset (`20% (19:20) | 50% (22/06, 19:59)`). Uso da sessao (5h) e uso
+/// semanal (7d); mostra apenas a parte da sessao quando nao ha dados de 7 dias.
 #[cfg(target_os = "windows")]
-fn widget_detail(metric: Option<&UsageMetric>) -> String {
+fn widget_detail(metric: Option<&UsageMetric>, mostrar_hora: bool) -> String {
     let Some(metric) = metric else {
         return "--".to_string();
     };
@@ -1259,28 +1274,57 @@ fn widget_detail(metric: Option<&UsageMetric>) -> String {
         return "erro".to_string();
     }
 
-    let session = format!(
-        "{:.0}%{}",
-        metric.uso_percentual,
-        reset_suffix(metric.reset_em.as_deref())
-    );
+    let suffix = |iso: Option<&str>| {
+        if mostrar_hora {
+            reset_suffix_clock(iso)
+        } else {
+            reset_suffix(iso)
+        }
+    };
+
+    let session = format!("{:.0}%{}", metric.uso_percentual, suffix(metric.reset_em.as_deref()));
     match metric.uso_percentual_7d {
         Some(weekly) => format!(
             "{session} | {:.0}%{}",
             weekly,
-            reset_suffix(metric.reset_em_7d.as_deref())
+            suffix(metric.reset_em_7d.as_deref())
         ),
         None => session,
     }
 }
 
-/// Sufixo " (tempo)" para o reset; vazio quando nao ha reset valido.
+/// Sufixo " (tempo)" para o reset (tempo restante); vazio quando nao ha reset valido.
 #[cfg(target_os = "windows")]
 fn reset_suffix(iso: Option<&str>) -> String {
     match format_reset(iso) {
         Some(text) => format!(" ({text})"),
         None => String::new(),
     }
+}
+
+/// Sufixo " (hora)" para o reset (hora/data exata); vazio quando nao ha reset valido.
+#[cfg(target_os = "windows")]
+fn reset_suffix_clock(iso: Option<&str>) -> String {
+    match format_reset_clock(iso) {
+        Some(text) => format!(" ({text})"),
+        None => String::new(),
+    }
+}
+
+/// Formata a hora/data exata do reset em horario local: "19:20" se for hoje, ou
+/// "22/06, 19:59" se for outro dia.
+#[cfg(target_os = "windows")]
+fn format_reset_clock(iso: Option<&str>) -> Option<String> {
+    let reset = DateTime::parse_from_rfc3339(iso?)
+        .ok()?
+        .with_timezone(&chrono::Local);
+    let same_day = reset.date_naive() == chrono::Local::now().date_naive();
+    let text = if same_day {
+        reset.format("%H:%M").to_string()
+    } else {
+        reset.format("%d/%m, %H:%M").to_string()
+    };
+    Some(text)
 }
 
 /// Formata o tempo restante ate o reset: "2d", "2:36h" ou "45m".
