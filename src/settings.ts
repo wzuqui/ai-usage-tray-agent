@@ -19,6 +19,7 @@ interface BarraConfig {
   deslocamento: number;
   tamanhoFonte: number;
   corFonte: string;
+  formatoReset: string;
 }
 interface AppConfig {
   usuario: string;
@@ -63,6 +64,7 @@ function fillForm(data: SettingsData): void {
   $<HTMLInputElement>("set-barraDesloc").value = String(barra.deslocamento ?? 0);
   $<HTMLInputElement>("set-barraFonte").value = String(barra.tamanhoFonte ?? 9);
   $<HTMLInputElement>("set-barraCor").value = barra.corFonte ?? "auto";
+  $<HTMLSelectElement>("set-barraFormatoReset").value = barra.formatoReset === "exato" ? "exato" : "restante";
   syncColorPicker();
 
   $<HTMLInputElement>("set-autostart").checked = !!data.autostart;
@@ -99,6 +101,7 @@ function collect(): SaveSettings {
       deslocamento,
       tamanhoFonte: fonte,
       corFonte: $<HTMLInputElement>("set-barraCor").value.trim() || "auto",
+      formatoReset: $<HTMLSelectElement>("set-barraFormatoReset").value,
     },
   };
   return { config, autostart: $<HTMLInputElement>("set-autostart").checked };

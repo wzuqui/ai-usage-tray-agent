@@ -86,6 +86,38 @@ svg text { fill: #9a968d; font-size: 11px; }
 .tip .tr b { margin-left: auto; padding-left: 14px; color: #fff; font-weight: 600; }
 .tip .dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
 
+/* ===== Uso atual ===== */
+.ubanner { background: #2a2620; border: 1px solid #4a3f2e; color: #d9b78a; border-radius: 10px;
+  padding: 10px 14px; font-size: 13.5px; margin-top: 16px; }
+#usage-cards { display: grid; gap: 16px; margin-top: 18px; }
+.uprov { background: #232220; border: 1px solid #34322d; border-radius: 14px; padding: 18px; }
+.uprov.error { border-color: #5a3a33; }
+.uprov-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
+.uprov-name { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.uprov-meta { font-size: 12.5px; color: #807c74; white-space: nowrap; }
+.uprov-note { color: #9a968d; font-size: 14px; }
+.uprov-note.err { color: #e0816f; }
+.ubadge { font-size: 11px; border-radius: 6px; padding: 2px 8px; border: 1px solid #34322d; }
+.ubadge.muted { color: #807c74; }
+.ubadge.err { color: #e0816f; border-color: #5a3a33; background: #2a1f1c; }
+.uwins { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.uwin { background: #2a2926; border: 1px solid #34322d; border-radius: 10px; padding: 14px; }
+.uwin-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.uwin-label { color: #e8e6e1; font-size: 15px; font-weight: 600; letter-spacing: .2px; }
+.uwin-pct { font-size: 26px; font-weight: 700; line-height: 1; }
+.uwin-pct.muted { color: #6f6c64; font-size: 20px; }
+.ubar { height: 8px; background: #1c1b18; border-radius: 999px; margin: 10px 0; overflow: hidden; }
+.ubar-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
+.uwin-reset { font-size: 13px; }
+.ur-line { color: #c9c5bc; }
+.ur-k { color: #9a968d; }
+.u-remain { font-weight: 600; color: #e8e6e1; }
+.u-time { font-weight: 600; color: #e8e6e1; }
+.ur-exact { color: #807c74; font-size: 12.5px; margin-top: 2px; }
+.uwin-na { color: #6f6c64; font-size: 13px; margin-top: 8px; }
+.usage-footer { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.usage-footer .foot { flex: 1; margin-top: 0; }
+
 /* ===== Configurações ===== */
 .sub { color: #9a968d; font-size: 14px; margin: 8px 0 0; }
 .settings-tabs { margin-bottom: 4px; flex-wrap: wrap; }
@@ -93,7 +125,7 @@ svg text { fill: #9a968d; font-size: 11px; }
 .stab.on { display: block; }
 .hint { color: #9a968d; font-size: 13px; margin: 0 0 14px; }
 .field { margin-bottom: 16px; }
-.field > label { display: block; font-size: 14px; color: #c9c5bc; margin-bottom: 6px; }
+.field > label:not(.check) { display: block; font-size: 14px; color: #c9c5bc; margin-bottom: 6px; }
 .field .desc { color: #807c74; font-size: 12.5px; margin-top: 5px; }
 input[type=text], input[type=number], input[type=password], select {
   width: 100%; background: #1c1b18; border: 1px solid #3a3833; border-radius: 9px;
@@ -101,8 +133,8 @@ input[type=text], input[type=number], input[type=password], select {
 input:focus, select:focus { outline: none; border-color: #d97757; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .row > .field { flex: 1; min-width: 130px; }
-.check { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
-.check input { width: 18px; height: 18px; accent-color: #d97757; flex: none; cursor: pointer; }
+.check { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+.check input { width: 18px; height: 18px; accent-color: #d97757; flex: none; cursor: pointer; margin: 0; }
 .check span { font-size: 14px; color: #e8e6e1; }
 .inline { display: flex; gap: 10px; align-items: center; }
 .inline input[type=color] { width: 44px; height: 38px; padding: 2px; background: #1c1b18; border: 1px solid #3a3833; border-radius: 9px; cursor: pointer; flex: none; }
@@ -128,4 +160,6 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
   .sidebar { width: auto; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid #34322d; padding: 10px 14px; }
   .brand { padding: 0 12px 0 4px; }
   .nav { flex-direction: row; }
+  .uwins { grid-template-columns: 1fr; }
 }
+.uprov-name svg.pico { flex: none; }

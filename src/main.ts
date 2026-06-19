@@ -1,24 +1,29 @@
-// Shell do app: troca entre as seções (Dashboard / Configurações) pelo menu
-// lateral. Janela única, aberta pelo item "Abrir" do tray.
+// Shell do app: troca entre as seções (Uso atual / Dashboard Claude /
+// Configurações) pelo menu lateral. Janela única, aberta pelo clique esquerdo
+// no tray ou pelo item "Abrir". A seção padrão é "Uso atual".
 import { initDashboard, loadDashboard } from "./dashboard";
 import { initSettings } from "./settings";
+import { initUsage, loadUsage } from "./usage";
 
 function activate(view: string): void {
   document.querySelectorAll(".nav-item").forEach((b) =>
     b.classList.toggle("on", (b as HTMLElement).dataset.view === view));
   document.querySelectorAll(".view").forEach((s) =>
     s.classList.toggle("on", s.id === "view-" + view));
-  if (view === "dashboard") void loadDashboard();
+  if (view === "usage") void loadUsage();
+  else if (view === "dashboard") initDashboard();
   else if (view === "settings") initSettings();
 }
 
 document.querySelectorAll(".nav-item").forEach((b) =>
-  b.addEventListener("click", () => activate((b as HTMLElement).dataset.view ?? "dashboard")));
+  b.addEventListener("click", () => activate((b as HTMLElement).dataset.view ?? "usage")));
 
-// Ao reabrir a janela (item "Abrir" do tray), recarrega o dashboard se for a
-// seção ativa, para não mostrar dados velhos. Barato: o backend tem cache.
+// Ao reabrir a janela (clique no tray / item "Abrir"), recarrega a seção ativa
+// para não mostrar dados velhos. Ambas as cargas são baratas (snapshot/cache no
+// backend).
 window.addEventListener("focus", () => {
-  if (document.getElementById("view-dashboard")?.classList.contains("on")) void loadDashboard();
+  if (document.getElementById("view-usage")?.classList.contains("on")) void loadUsage();
+  else if (document.getElementById("view-dashboard")?.classList.contains("on")) void loadDashboard();
 });
 
-initDashboard();
+initUsage();

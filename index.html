@@ -11,17 +11,30 @@
   <body>
     <div class="app">
       <aside class="sidebar">
-        <div class="brand"><span class="spark">✳</span> AiUsage</div>
+        <div class="brand">AiUsage</div>
         <nav class="nav">
-          <button type="button" class="nav-item on" data-view="dashboard">Dashboard</button>
+          <button type="button" class="nav-item on" data-view="usage">Uso atual</button>
+          <button type="button" class="nav-item" data-view="dashboard">Dashboard Claude</button>
           <button type="button" class="nav-item" data-view="settings">Configurações</button>
         </nav>
       </aside>
 
       <main class="content">
+        <!-- ===== Uso atual ===== -->
+        <section id="view-usage" class="view on">
+          <h1>Uso atual</h1>
+          <p class="sub">Uso de sessão (5h) e semanal (7d) do Claude e do Codex, com o tempo restante e a data/hora do próximo reset.</p>
+          <div id="usage-banner"></div>
+          <div id="usage-cards"></div>
+          <div class="usage-footer">
+            <span id="usage-foot" class="foot"></span>
+            <button type="button" class="btn" id="usage-refresh" title="Força uma coleta nova agora (também envia ao Loki)">Atualizar agora</button>
+          </div>
+        </section>
+
         <!-- ===== Dashboard ===== -->
-        <section id="view-dashboard" class="view on">
-          <h1><span class="spark">✳</span> Uso do Claude Code</h1>
+        <section id="view-dashboard" class="view">
+          <h1>Uso do Claude Code</h1>
           <div class="panel">
             <div class="toolbar">
               <div class="tabs">
@@ -52,7 +65,7 @@
 
         <!-- ===== Configurações ===== -->
         <section id="view-settings" class="view">
-          <h1><span class="spark">✳</span> Configurações</h1>
+          <h1>Configurações</h1>
           <p class="sub">Salvas no <code>config.json</code> e aplicadas pelo app em ~1s, sem reiniciar.</p>
 
           <div class="panel">
@@ -92,13 +105,8 @@
               <!-- Codex -->
               <div class="stab" data-spanel="codex">
                 <p class="hint">Coleta o uso do Codex a partir do <code>auth.json</code>.</p>
-                <div class="row">
-                  <div class="field">
-                    <label class="check"><input type="checkbox" id="set-codexHab"><span>Habilitado</span></label>
-                  </div>
-                  <div class="field">
-                    <label class="check"><input type="checkbox" id="set-codexTaskbar"><span>Mostrar na barra<span class="winonly">Windows</span></span></label>
-                  </div>
+                <div class="field">
+                  <label class="check"><input type="checkbox" id="set-codexHab"><span>Habilitado</span></label>
                 </div>
                 <div class="field">
                   <label for="set-codexAuth">Caminho do auth.json</label>
@@ -109,13 +117,8 @@
               <!-- Claude -->
               <div class="stab" data-spanel="claude">
                 <p class="hint">Coleta o uso do Claude usando <code>organizationId</code> e o cookie de sessão.</p>
-                <div class="row">
-                  <div class="field">
-                    <label class="check"><input type="checkbox" id="set-claudeHab"><span>Habilitado</span></label>
-                  </div>
-                  <div class="field">
-                    <label class="check"><input type="checkbox" id="set-claudeTaskbar"><span>Mostrar na barra<span class="winonly">Windows</span></span></label>
-                  </div>
+                <div class="field">
+                  <label class="check"><input type="checkbox" id="set-claudeHab"><span>Habilitado</span></label>
                 </div>
                 <div class="field">
                   <label for="set-claudeOrg">Organization ID</label>
@@ -133,7 +136,15 @@
 
               <!-- Barra de tarefas -->
               <div class="stab" data-spanel="barra">
-                <p class="hint">Aparência e posição do widget desenhado na barra (ignorado em Linux/macOS).</p>
+                <p class="hint">Quais provedores aparecem, aparência e posição do widget desenhado na barra (ignorado em Linux/macOS).</p>
+                <div class="row">
+                  <div class="field">
+                    <label class="check"><input type="checkbox" id="set-codexTaskbar"><span>Mostrar Codex na barra</span></label>
+                  </div>
+                  <div class="field">
+                    <label class="check"><input type="checkbox" id="set-claudeTaskbar"><span>Mostrar Claude na barra</span></label>
+                  </div>
+                </div>
                 <div class="row">
                   <div class="field">
                     <label for="set-barraLado">Lado</label>
@@ -160,6 +171,16 @@
                       <input type="color" id="set-barraCorPicker" value="#ffffff" title="Escolher cor">
                     </div>
                     <div class="desc"><code>auto</code> = preto/branco conforme a barra, ou um hex (ex.: <code>#FFD700</code>).</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="field">
+                    <label for="set-barraFormatoReset">Formato do reset</label>
+                    <select id="set-barraFormatoReset">
+                      <option value="restante">Tempo restante (ex.: 4:19h)</option>
+                      <option value="exato">Hora/data exata (ex.: 19:20 · 22/06, 19:59)</option>
+                    </select>
+                    <div class="desc">No modo exato, mostra só a hora se o reset for hoje, ou com a data se for outro dia.</div>
                   </div>
                 </div>
               </div>

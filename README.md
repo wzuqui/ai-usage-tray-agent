@@ -11,7 +11,7 @@ O projeto foi feito com:
 ## O que ele faz
 
 - Inicia no tray sem abrir janela principal para o usuário
-- Tem uma janela nativa (webview) com **Dashboard** e **Configurações**
+- Tem uma janela nativa (webview) com **Uso atual**, **Dashboard Claude** e **Configurações**
 - Coleta uso do Codex e do Claude em intervalo configurável
 - Envia logs estruturados JSON para Loki
 - Mantém logs locais
@@ -76,7 +76,8 @@ Exemplo:
     "lado": "direita",
     "deslocamento": 0,
     "tamanhoFonte": 9,
-    "corFonte": "auto"
+    "corFonte": "auto",
+    "formatoReset": "restante"
   }
 }
 ```
@@ -124,14 +125,23 @@ Itens do menu:
 > itens do tray; são editadas nas **Configurações** do app (abas Barra de
 > tarefas e Sistema).
 
-## Janela do app (Dashboard e Configurações)
+## Janela do app (Uso atual, Dashboard Claude e Configurações)
 
 A interface é uma janela nativa (webview do Tauri), aberta pelo clique esquerdo
 no tray ou pelo item **Abrir**. Não usa navegador nem servidor HTTP local: o
 frontend conversa com o backend Rust por comandos (IPC). Um menu lateral troca
-entre duas seções. Fechar pela janela (X) **esconde** o app (continua no tray).
+entre três seções. Fechar pela janela (X) **esconde** o app (continua no tray).
 
-### Dashboard
+### Uso atual
+
+Primeira tela do menu. Mostra, para **Claude** e **Codex**, o uso da **sessão
+(5h)** e **semanal (7d)** com barra de progresso, tempo restante para o reset
+(contagem regressiva ao vivo) e o horário/data exatos do próximo reset. Traz
+ainda "atualizado há Xs" e o botão **Atualizar agora** (força uma coleta nova).
+Os dados vêm do comando `get_usage` (lê o mesmo snapshot do tray/barra, sem
+rede); `force_collect` força um ciclo novo.
+
+### Dashboard Claude
 
 Replica o painel de uso do Claude Code lendo as mesmas fontes locais
 (`~/.claude/projects/**/*.jsonl` e `~/.claude/stats-cache.json`): cards de
@@ -144,11 +154,12 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
 "iniciar com o sistema"):
 
 - **Geral**: `usuario`, `intervaloSegundos`, `loki.url`.
-- **Codex**: `habilitado`, `authJsonPath`, `mostraNaTaskbarWindows`.
-- **Claude**: `habilitado`, `organizationId`, `cookie` (com mostrar/ocultar),
-  `mostraNaTaskbarWindows`.
-- **Barra de tarefas** (Windows): `lado`, `deslocamento`, `tamanhoFonte`,
-  `corFonte` (com seletor de cor).
+- **Codex**: `habilitado`, `authJsonPath`.
+- **Claude**: `habilitado`, `organizationId`, `cookie` (com mostrar/ocultar).
+- **Barra de tarefas** (Windows): exibir cada provedor na barra
+  (`providers.<ia>.mostraNaTaskbarWindows`), `lado`, `deslocamento`,
+  `tamanhoFonte`, `corFonte` (com seletor de cor) e `formatoReset` (tempo
+  restante ou hora/data exata).
 - **Sistema**: **Iniciar com o sistema** (autostart) — não fica no `config.json`,
   é gerenciado pelo `tauri-plugin-autostart`.
 
@@ -181,6 +192,7 @@ No Windows o app desenha o uso diretamente na barra de tarefas. Cada provedor
 
 - O primeiro valor é o uso da janela de 5h e quanto falta para resetar.
 - O segundo valor é o uso dos últimos 7 dias e quanto falta para resetar.
+- Um **clique** no widget abre a janela do app (igual ao clique esquerdo no tray).
 - Provedores com `"habilitado": false` no `config.json` não aparecem na barra.
 - A exibição de cada provedor na barra é controlada por
   `providers.<ia>.mostraNaTaskbarWindows` (padrão `true`). Você pode alterar isso
@@ -229,6 +241,10 @@ Aparência (fonte):
 - `barraTarefas.corFonte`: `"auto"` (padrão — preto em barra clara, branco em
   barra escura, conforme a cor real da barra) ou um hex `"#RRGGBB"` (ex.:
   `"#FFD700"`). Valores inválidos voltam para `"auto"`.
+- `barraTarefas.formatoReset`: como o reset aparece no widget. `"restante"`
+  (padrão) mostra o tempo regressivo (ex.: `33% (4:19h) | 68% (2d)`); `"exato"`
+  mostra a hora/data do reset em horário local — só a hora se for hoje, ou com a
+  data se for outro dia (ex.: `33% (19:20) | 68% (22/06, 19:59)`).
 - Ambos são aplicados em ~1s ao editar o `config.json`, sem reiniciar. Evite uma
   `corFonte` igual à cor da barra (o fundo é transparente por *color-key*, então
   o texto sumiria).
@@ -321,14 +337,15 @@ Codex:
 ```text
 index.html            # janela unica do app (menu lateral + secoes)
 src/
-  main.ts             # shell: navegacao entre Dashboard e Configuracoes
-  dashboard.ts        # dashboard de uso (consome o comando get_stats)
+  main.ts             # shell: navegacao entre Uso atual, Dashboard Claude e Configuracoes
+  usage.ts            # tela "Uso atual" (consome get_usage/force_collect)
+  dashboard.ts        # dashboard de uso do Claude Code (consome get_stats)
   settings.ts         # configuracoes (consome get_settings/save_settings)
   styles.css
 
 src-tauri/
   src/
-    lib.rs             # tray, worker de coleta e comandos IPC (get_stats/get_settings/save_settings)
+    lib.rs             # tray, worker de coleta e comandos IPC (get_stats/get_settings/save_settings/get_usage/force_collect)
     main.rs
     usage_dashboard.rs # coleta as estatisticas do dashboard
     taskbar_widget.rs  # widget da barra de tarefas (somente Windows)

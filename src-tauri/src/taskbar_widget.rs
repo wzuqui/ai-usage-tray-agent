@@ -67,6 +67,8 @@ static FONT_POINT: AtomicI32 = AtomicI32::new(FONT_POINT_DEFAULT);
 /// Cor da fonte como COLORREF (0x00BBGGRR) ou -1 = automatico (preto/branco
 /// conforme a cor real da barra). Configuravel via `barraTarefas.corFonte`.
 static FONT_COLOR: AtomicI32 = AtomicI32::new(-1);
+/// Callback acionado quando o usuario clica num widget (abrir a janela do app).
+static ON_ACTIVATE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 
 fn state() -> &'static Mutex<Vec<ProviderState>> {
     STATE.get_or_init(|| {
@@ -143,6 +145,12 @@ pub fn set_font_color(rgb: Option<(u8, u8, u8)>) {
         None => -1,
     };
     FONT_COLOR.store(value, Ordering::Relaxed);
+}
+
+/// Registra o callback chamado quando o usuario clica num widget (ex.: mostrar a
+/// janela do app). So o primeiro registro vale.
+pub fn set_on_activate<F: Fn() + Send + Sync + 'static>(callback: F) {
+    let _ = ON_ACTIVATE.set(Box::new(callback));
 }
 
 /// Cor da fonte configurada, ou `None` se estiver em modo automatico.
@@ -291,8 +299,13 @@ unsafe fn create_widget(taskbar: HWND, index: usize) -> Option<HWND> {
     // Janelas com parent em outro processo nao podem ser criadas direto como
     // WS_CHILD (CreateWindowEx retorna ERROR_ALREADY_EXISTS). Cria-se como
     // top-level WS_POPUP oculta e depois reparenta-se com SetParent.
+    //
+    // Sem WS_EX_TRANSPARENT: o widget recebe cliques (WM_LBUTTONUP) para abrir o
+    // app. WS_EX_NOACTIVATE mantem o foco onde estava (nao "rouba" ativacao); os
+    // pixels do color-key continuam deixando o clique passar, entao o alvo
+    // clicavel e' efetivamente o texto.
     let result = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
+        WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         CLASS_NAME,
         PCWSTR::null(),
         WS_POPUP,
@@ -408,11 +421,19 @@ unsafe fn position_widgets(taskbar: HWND) {
     // Calcula (x, largura) de cada widget conforme o lado.
     let mut placements: Vec<(usize, isize, i32, i32)> = Vec::with_capacity(layout.len());
 
+    // Janelas-filhas estreitas da barra (widgets de terceiros: monitores de rede,
+    // botao de clima, etc.) em coordenadas de cliente. Usadas para ancorar o
+    // widget colado ao *cluster* vizinho, caminhando por janelas contiguas.
+    let widgets = strip_widgets(taskbar, scale);
+    // Tolerancia de "encostado": vao maximo entre um widget e o proximo do cluster.
+    let gap_tol = (24.0 * scale) as i32;
+    let bar_width = taskbar_rect.right - taskbar_rect.left;
+
     if side_left {
-        // Borda esquerda: a direita de eventuais widgets de terceiro na ponta
-        // esquerda da barra; senao, a propria borda esquerda (cliente x = 0).
+        // Borda esquerda: a direita do cluster de widgets de terceiro colado na
+        // ponta esquerda da barra; senao, a propria borda esquerda (cliente x = 0).
         let strip = sticky_boundary(
-            rightmost_strip_widget(taskbar, taskbar_rect.right, scale),
+            cluster_edge_left(&widgets, taskbar_rect.left, gap_tol, bar_width),
             true,
         );
         let mut boundary = taskbar_rect.left;
@@ -431,20 +452,20 @@ unsafe fn position_widgets(taskbar: HWND) {
             x_left = x + width + between;
         }
     } else {
-        // Borda direita: a esquerda da bandeja e, se houver, de qualquer outro
-        // widget de terceiro embutido na faixa direita da barra.
+        // Borda direita: a esquerda da bandeja e, caminhando dali para a esquerda,
+        // a esquerda do cluster de widgets de terceiro colados a ela (monitores de
+        // rede, etc.). Comeca na borda esquerda da bandeja (ou na ponta direita da
+        // barra, se a bandeja nao for encontrada).
         let tray_left = FindWindowExW(Some(taskbar), None, w!("TrayNotifyWnd"), PCWSTR::null())
             .ok()
             .and_then(|tray| window_left_in_client(taskbar, tray));
+        let base = tray_left.unwrap_or(taskbar_rect.right);
         let strip = sticky_boundary(
-            leftmost_strip_widget(taskbar, taskbar_rect.right, scale),
+            cluster_edge_right(&widgets, base, gap_tol, bar_width),
             false,
         );
 
-        let mut boundary = taskbar_rect.right;
-        if let Some(left) = tray_left {
-            boundary = left;
-        }
+        let mut boundary = base;
         if let Some(left) = strip {
             if left > 0 && left < boundary {
                 boundary = left;
@@ -508,18 +529,12 @@ unsafe fn window_left_in_client(taskbar: HWND, window: HWND) -> Option<i32> {
     Some(point.x)
 }
 
-struct StripScan {
+struct WidgetScan {
     taskbar: isize,
     width_limit: i32,
-    /// `true` = faixa esquerda (rastreia a maior borda direita encontrada);
-    /// `false` = faixa direita (rastreia a menor borda esquerda encontrada).
-    left_strip: bool,
-    /// Limite da regiao (cliente). Direita: ignora janelas com `left <= limite`.
-    /// Esquerda: ignora janelas com `right >= limite`.
-    region_limit: i32,
-    /// Melhor borda encontrada. Direita: menor `left` (inicia em `i32::MAX`).
-    /// Esquerda: maior `right` (inicia em `i32::MIN`).
-    best: i32,
+    /// Bordas (esquerda, direita) de cada janela estreita, em coordenadas de
+    /// cliente da barra.
+    rects: Vec<(i32, i32)>,
 }
 
 /// True se o nome da classe e' o de um dos nossos proprios widgets.
@@ -527,8 +542,8 @@ fn is_our_widget_class(name: &[u16]) -> bool {
     name.iter().copied().eq("AiUsageTaskbarWidget".encode_utf16())
 }
 
-unsafe extern "system" fn strip_scan_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let context = &mut *(lparam.0 as *mut StripScan);
+unsafe extern "system" fn widget_scan_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let context = &mut *(lparam.0 as *mut WidgetScan);
 
     if !IsWindowVisible(hwnd).as_bool() {
         return BOOL(1);
@@ -544,72 +559,92 @@ unsafe extern "system" fn strip_scan_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         return BOOL(1);
     }
     let width = rect.right - rect.left;
+    // So janelas estreitas: exclui os containers largos do sistema (area de
+    // tarefas, lista centralizada de apps, etc.).
     if width <= 0 || width > context.width_limit {
         return BOOL(1);
     }
-    // So considera janelas estreitas na faixa de interesse, o que exclui os
-    // containers largos do sistema (area de tarefas, lista centralizada, etc.).
     let taskbar = HWND(context.taskbar as *mut c_void);
     let mut point = POINT {
         x: rect.left,
         y: rect.top,
     };
     let _ = ScreenToClient(taskbar, &mut point);
-    if context.left_strip {
-        // Borda direita da janela em coordenadas de cliente.
-        let right = point.x + width;
-        if right < context.region_limit && right > context.best {
-            context.best = right;
-        }
-    } else if point.x > context.region_limit && point.x < context.best {
-        context.best = point.x;
-    }
+    context.rects.push((point.x, point.x + width));
     BOOL(1)
 }
 
-/// Borda esquerda (em coordenadas de cliente) do widget de terceiro mais a
-/// esquerda embutido na faixa direita da barra, ou `None` se nao houver.
-unsafe fn leftmost_strip_widget(taskbar: HWND, taskbar_width: i32, scale: f32) -> Option<i32> {
-    let mut context = StripScan {
+/// Coleta as janelas-filhas estreitas da barra (widgets de terceiros), em
+/// coordenadas de cliente, como pares (borda esquerda, borda direita).
+unsafe fn strip_widgets(taskbar: HWND, scale: f32) -> Vec<(i32, i32)> {
+    let mut context = WidgetScan {
         taskbar: taskbar.0 as isize,
         width_limit: (500.0 * scale) as i32,
-        left_strip: false,
-        region_limit: (taskbar_width as f32 * 0.35) as i32,
-        best: i32::MAX,
+        rects: Vec::new(),
     };
     let _ = EnumChildWindows(
         Some(taskbar),
-        Some(strip_scan_proc),
-        LPARAM(&mut context as *mut StripScan as isize),
+        Some(widget_scan_proc),
+        LPARAM(&mut context as *mut WidgetScan as isize),
     );
-    if context.best == i32::MAX {
-        None
+    context.rects
+}
+
+/// Borda esquerda do *cluster* de widgets colados a `base` pela direita,
+/// caminhando para a esquerda por janelas contiguas (vao <= `gap_tol`). Comeca
+/// na bandeja e absorve cada widget que encosta no limite atual, estendendo-o ate
+/// a borda esquerda do widget. Janelas soltas no meio da barra (ex.: posicoes
+/// transitorias no boot, longe da bandeja) nao sao contiguas e sao ignoradas.
+/// Retorna `None` se nada foi absorvido. Trava de seguranca: nunca ancora antes
+/// da metade da barra, evitando colar o widget ao Iniciar centralizado.
+fn cluster_edge_right(widgets: &[(i32, i32)], base: i32, gap_tol: i32, bar_width: i32) -> Option<i32> {
+    let floor = bar_width / 2;
+    let mut boundary = base;
+    loop {
+        let mut next = boundary;
+        for &(left, right) in widgets {
+            // Widget que encosta no limite atual pela esquerda e o estende.
+            if left < next && right >= boundary - gap_tol {
+                next = next.min(left);
+            }
+        }
+        if next < boundary && next >= floor {
+            boundary = next;
+        } else {
+            break;
+        }
+    }
+    if boundary < base {
+        Some(boundary)
     } else {
-        Some(context.best)
+        None
     }
 }
 
-/// Borda direita (em coordenadas de cliente) do widget de terceiro mais a direita
-/// embutido na ponta esquerda da barra (ex.: botao de Widgets/clima), ou `None`.
-/// So considera a faixa esquerda (ate ~40% da largura) para nao ancorar nos
-/// icones centralizados do menu Iniciar.
-unsafe fn rightmost_strip_widget(taskbar: HWND, taskbar_width: i32, scale: f32) -> Option<i32> {
-    let mut context = StripScan {
-        taskbar: taskbar.0 as isize,
-        width_limit: (500.0 * scale) as i32,
-        left_strip: true,
-        region_limit: (taskbar_width as f32 * 0.40) as i32,
-        best: i32::MIN,
-    };
-    let _ = EnumChildWindows(
-        Some(taskbar),
-        Some(strip_scan_proc),
-        LPARAM(&mut context as *mut StripScan as isize),
-    );
-    if context.best == i32::MIN {
-        None
+/// Espelho de [`cluster_edge_right`] para o lado esquerdo: borda direita do
+/// cluster colado a `base` (ponta esquerda da barra) caminhando para a direita.
+/// Trava de seguranca: nunca passa da metade da barra.
+fn cluster_edge_left(widgets: &[(i32, i32)], base: i32, gap_tol: i32, bar_width: i32) -> Option<i32> {
+    let ceil = bar_width / 2;
+    let mut boundary = base;
+    loop {
+        let mut next = boundary;
+        for &(left, right) in widgets {
+            // Widget que encosta no limite atual pela direita e o estende.
+            if right > next && left <= boundary + gap_tol {
+                next = next.max(right);
+            }
+        }
+        if next > boundary && next <= ceil {
+            boundary = next;
+        } else {
+            break;
+        }
+    }
+    if boundary > base {
+        Some(boundary)
     } else {
-        Some(context.best)
+        None
     }
 }
 
@@ -852,6 +887,23 @@ unsafe extern "system" fn wnd_proc(
         WM_APP_UPDATE => {
             let _ = InvalidateRect(Some(hwnd), None, true);
             LRESULT(0)
+        }
+        WM_LBUTTONUP => {
+            // Clique no widget: abre a janela do app (mesma acao do clique no tray).
+            if let Some(callback) = ON_ACTIVATE.get() {
+                callback();
+            }
+            LRESULT(0)
+        }
+        WM_SETCURSOR => {
+            // Mantem a seta padrao sobre o widget. Sem isto, como a classe nao tem
+            // cursor, o DefWindowProc repassa o WM_SETCURSOR para a barra (outro
+            // processo) e o cursor pode virar ampulheta. Tratamos aqui e
+            // retornamos TRUE para encerrar o processamento.
+            if let Ok(cursor) = LoadCursorW(None, IDC_ARROW) {
+                let _ = SetCursor(Some(cursor));
+            }
+            LRESULT(1)
         }
         WM_DESTROY => {
             let index = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as usize;

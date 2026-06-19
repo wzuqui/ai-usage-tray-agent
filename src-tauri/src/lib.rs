@@ -6,7 +6,7 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     thread,
     time::Duration,
@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime, State,
+    AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -67,6 +67,9 @@ struct TaskbarConfig {
     /// Cor da fonte: "auto" (padrao, preto/branco conforme a cor da barra) ou um
     /// hex "#RRGGBB" (ex.: "#FFD700"). Valores invalidos voltam a "auto".
     cor_fonte: String,
+    /// Como exibir o reset no widget: "restante" (padrao, tempo regressivo ex.:
+    /// "2:36h") ou "exato" (hora/data do reset ex.: "19:20" ou "22/06, 19:59").
+    formato_reset: String,
 }
 
 impl Default for TaskbarConfig {
@@ -76,6 +79,7 @@ impl Default for TaskbarConfig {
             deslocamento: 0,
             tamanho_fonte: 9,
             cor_fonte: "auto".to_string(),
+            formato_reset: "restante".to_string(),
         }
     }
 }
@@ -87,6 +91,15 @@ impl TaskbarConfig {
         matches!(
             self.lado.trim().to_ascii_lowercase().as_str(),
             "esquerda" | "esquerdo" | "left" | "e"
+        )
+    }
+
+    /// `true` se o reset deve ser exibido como hora/data exata em vez do tempo
+    /// restante (aceita variacoes comuns).
+    fn mostrar_hora_reset(&self) -> bool {
+        matches!(
+            self.formato_reset.trim().to_ascii_lowercase().as_str(),
+            "exato" | "exata" | "hora" | "horario" | "data" | "absoluto"
         )
     }
 
@@ -300,22 +313,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             usage_dashboard::get_stats,
             get_settings,
-            save_settings
+            save_settings,
+            get_usage,
+            force_collect
         ])
         .setup(|app| {
-            // Janela unica do app (Dashboard + Configuracoes). Comeca escondida
-            // (tray-only); o item "Abrir" do tray a exibe. Fechar pela X esconde
-            // em vez de encerrar, para o app continuar vivo no tray.
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.hide();
-                let hide_target = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = hide_target.hide();
-                    }
-                });
-            }
+            // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
+            // em show_main_window (tray-only). Fechar pela X destroi a janela e
+            // libera o WebView2 (~140 MB); reabrir recria. O app continua vivo no
+            // tray porque prevent_exit no run loop impede a saida ao fechar a ultima
+            // janela.
 
             let paths = ensure_storage()?;
             // Garante que o config.json exista e esteja normalizado (campos
@@ -347,7 +354,18 @@ pub fn run() {
             create_tray(app)?;
 
             #[cfg(target_os = "windows")]
-            taskbar_widget::start();
+            {
+                // Clicar no widget da barra abre a janela do app (mesma acao do
+                // clique esquerdo no tray). A thread do widget nao tem o
+                // AppHandle, entao registramos um callback; ele despacha para a
+                // main thread, onde as operacoes de janela sao seguras.
+                let app_handle = app.handle().clone();
+                taskbar_widget::set_on_activate(move || {
+                    let handle = app_handle.clone();
+                    let _ = app_handle.run_on_main_thread(move || show_main_window(&handle));
+                });
+                taskbar_widget::start();
+            }
 
             refresh_tray(app.handle(), &shared)?;
             start_worker(app.handle().clone(), paths.clone(), shared.clone());
@@ -360,8 +378,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                if let Some(state) = app_handle.try_state::<Arc<SharedState>>() {
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+                if code.is_none() {
+                    // Saida disparada por fechar a ultima janela (X do dashboard):
+                    // o app e' tray-only, entao impede a saida e segue rodando.
+                    api.prevent_exit();
+                } else if let Some(state) = app_handle.try_state::<Arc<SharedState>>() {
+                    // Saida real (menu "Sair" -> app.exit): sinaliza o worker.
                     state.stop.store(true, Ordering::Relaxed);
                 }
             }
@@ -432,6 +455,51 @@ fn save_settings(
         .map_err(|error| format!("falha ao salvar config.json: {error}"))?;
     apply_autostart(&app, settings.autostart);
     Ok(settings_value(&app, paths.inner()))
+}
+
+/// Estado de uso exposto a' tela "Uso atual": as metricas atuais de cada
+/// provider (a mesma fonte do tray e da barra de tarefas), mais se cada um esta'
+/// habilitado e se a coleta esta' pausada. Nao faz rede: le' apenas o snapshot
+/// ja' coletado pelo worker.
+fn usage_value(paths: &RuntimePaths, shared: &Arc<SharedState>) -> Value {
+    let snapshot = shared.snapshot.lock().unwrap().clone();
+    let config = load_or_create_config(paths).unwrap_or_default();
+    json!({
+        "paused": snapshot.paused,
+        "lastError": snapshot.last_error,
+        "claude": {
+            "habilitado": config.providers.claude.habilitado,
+            "metric": snapshot.claude_metric,
+        },
+        "codex": {
+            "habilitado": config.providers.codex.habilitado,
+            "metric": snapshot.codex_metric,
+        },
+    })
+}
+
+/// Le' o uso atual (snapshot) para a tela "Uso atual". Barato e sem rede; pode
+/// ser chamado ao abrir/focar a janela.
+#[tauri::command]
+fn get_usage(paths: State<'_, RuntimePaths>, shared: State<'_, Arc<SharedState>>) -> Value {
+    usage_value(paths.inner(), shared.inner())
+}
+
+/// Forca uma coleta nova (igual ao "Enviar agora" do tray: tambem envia ao Loki)
+/// e devolve o uso ja' atualizado, para a tela mostrar o resultado assim que
+/// termina. Roda em `spawn_blocking` para nao travar a main thread: a coleta usa
+/// rede sincrona (ate' ~15s de timeout). O erro do ciclo, se houver, ja' fica
+/// refletido no proprio snapshot (status/erro por provider).
+#[tauri::command]
+async fn force_collect(app: AppHandle) -> Value {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = app.state::<RuntimePaths>().inner().clone();
+        let shared = app.state::<Arc<SharedState>>().inner().clone();
+        let _ = run_collection_cycle(&app, &paths, &shared);
+        usage_value(&paths, &shared)
+    })
+    .await
+    .unwrap_or_else(|error| json!({ "error": error.to_string() }))
 }
 
 fn create_tray<R: Runtime>(app: &mut tauri::App<R>) -> tauri::Result<()> {
@@ -558,12 +626,30 @@ fn update_tray_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &RuntimeSnapshot) 
 }
 
 /// Exibe e foca a janela unica do app (Dashboard + Configuracoes). Acionada pelo
-/// item "Abrir" do tray; tambem desfaz a minimizacao caso esteja minimizada.
+/// item "Abrir" do tray. Se a janela ja existe, apenas a traz ao foco (desfazendo
+/// a minimizacao); senao, a cria sob demanda. Fechar a janela a destroi (libera o
+/// WebView2), entao a proxima abertura recai no caminho de criacao.
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        return;
+    }
+
+    let result = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+        .title("AiUsageTrayAgent")
+        .inner_size(960.0, 660.0)
+        .min_inner_size(720.0, 520.0)
+        .center()
+        .resizable(true)
+        .decorations(true)
+        .build();
+    match result {
+        Ok(window) => {
+            let _ = window.set_focus();
+        }
+        Err(error) => handle_runtime_error(app, &format!("Falha ao abrir a janela: {error}")),
     }
 }
 
@@ -699,6 +785,22 @@ fn config_mtime(paths: &RuntimePaths) -> Option<std::time::SystemTime> {
         .ok()
 }
 
+/// Cliente HTTP compartilhado entre ciclos de coleta. Construido uma unica vez
+/// (lazy) para reaproveitar o pool de conexoes/keep-alive e evitar recriar o
+/// runtime interno do reqwest a cada ciclo. `Client` e' Arc por dentro, entao
+/// clonar e' barato e compartilha o mesmo pool.
+fn http_client() -> Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| Client::new())
+        })
+        .clone()
+}
+
 fn run_collection_cycle<R: Runtime>(
     app: &AppHandle<R>,
     paths: &RuntimePaths,
@@ -706,10 +808,7 @@ fn run_collection_cycle<R: Runtime>(
 ) -> Result<(), String> {
     let _lock = shared.cycle_lock.lock().unwrap();
     let config = load_or_create_config(paths).map_err(|error| error.to_string())?;
-    let client = Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = http_client();
 
     let mut had_error = false;
 
@@ -1059,17 +1158,18 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
                     taskbar_widget::set_side(config.barra_tarefas.lado_esquerdo());
                     taskbar_widget::set_font_size(config.barra_tarefas.tamanho_fonte_pt());
                     taskbar_widget::set_font_color(config.barra_tarefas.cor_fonte_rgb());
+                    let mostrar_hora = config.barra_tarefas.mostrar_hora_reset();
                     taskbar_widget::set_provider(
                         "codex",
                         config.providers.codex.habilitado
                             && config.providers.codex.mostra_na_taskbar_windows,
-                        widget_detail(snapshot.codex_metric.as_ref()),
+                        widget_detail(snapshot.codex_metric.as_ref(), mostrar_hora),
                     );
                     taskbar_widget::set_provider(
                         "claude",
                         config.providers.claude.habilitado
                             && config.providers.claude.mostra_na_taskbar_windows,
-                        widget_detail(snapshot.claude_metric.as_ref()),
+                        widget_detail(snapshot.claude_metric.as_ref(), mostrar_hora),
                     );
                 }
             }
@@ -1161,11 +1261,12 @@ fn metric_text(metric: Option<&UsageMetric>) -> String {
     }
 }
 
-/// Linha de detalhe do widget da barra de tarefas no formato
-/// `20% (2:36h) | 50% (2d)` — uso da sessao (5h) e reset, e uso semanal (7d) e
-/// reset. Mostra apenas a parte da sessao quando nao ha dados de 7 dias.
+/// Linha de detalhe do widget da barra de tarefas. Com `mostrar_hora = false`
+/// usa o tempo restante (`20% (2:36h) | 50% (2d)`); com `true` usa a hora/data
+/// exata do reset (`20% (19:20) | 50% (22/06, 19:59)`). Uso da sessao (5h) e uso
+/// semanal (7d); mostra apenas a parte da sessao quando nao ha dados de 7 dias.
 #[cfg(target_os = "windows")]
-fn widget_detail(metric: Option<&UsageMetric>) -> String {
+fn widget_detail(metric: Option<&UsageMetric>, mostrar_hora: bool) -> String {
     let Some(metric) = metric else {
         return "--".to_string();
     };
@@ -1173,28 +1274,57 @@ fn widget_detail(metric: Option<&UsageMetric>) -> String {
         return "erro".to_string();
     }
 
-    let session = format!(
-        "{:.0}%{}",
-        metric.uso_percentual,
-        reset_suffix(metric.reset_em.as_deref())
-    );
+    let suffix = |iso: Option<&str>| {
+        if mostrar_hora {
+            reset_suffix_clock(iso)
+        } else {
+            reset_suffix(iso)
+        }
+    };
+
+    let session = format!("{:.0}%{}", metric.uso_percentual, suffix(metric.reset_em.as_deref()));
     match metric.uso_percentual_7d {
         Some(weekly) => format!(
             "{session} | {:.0}%{}",
             weekly,
-            reset_suffix(metric.reset_em_7d.as_deref())
+            suffix(metric.reset_em_7d.as_deref())
         ),
         None => session,
     }
 }
 
-/// Sufixo " (tempo)" para o reset; vazio quando nao ha reset valido.
+/// Sufixo " (tempo)" para o reset (tempo restante); vazio quando nao ha reset valido.
 #[cfg(target_os = "windows")]
 fn reset_suffix(iso: Option<&str>) -> String {
     match format_reset(iso) {
         Some(text) => format!(" ({text})"),
         None => String::new(),
     }
+}
+
+/// Sufixo " (hora)" para o reset (hora/data exata); vazio quando nao ha reset valido.
+#[cfg(target_os = "windows")]
+fn reset_suffix_clock(iso: Option<&str>) -> String {
+    match format_reset_clock(iso) {
+        Some(text) => format!(" ({text})"),
+        None => String::new(),
+    }
+}
+
+/// Formata a hora/data exata do reset em horario local: "19:20" se for hoje, ou
+/// "22/06, 19:59" se for outro dia.
+#[cfg(target_os = "windows")]
+fn format_reset_clock(iso: Option<&str>) -> Option<String> {
+    let reset = DateTime::parse_from_rfc3339(iso?)
+        .ok()?
+        .with_timezone(&chrono::Local);
+    let same_day = reset.date_naive() == chrono::Local::now().date_naive();
+    let text = if same_day {
+        reset.format("%H:%M").to_string()
+    } else {
+        reset.format("%d/%m, %H:%M").to_string()
+    };
+    Some(text)
 }
 
 /// Formata o tempo restante ate o reset: "2d", "2:36h" ou "45m".
