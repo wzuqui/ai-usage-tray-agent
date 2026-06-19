@@ -10,10 +10,12 @@
     "tauri": "tauri",
     "usage": "bun --watch scripts/usage-server.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "vite": "^6.4.3",
-    "typescript": "~5.6.2"
+    "typescript": "~5.6.2",
+    "vite": "^6.4.3"
   }
 }

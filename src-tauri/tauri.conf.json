@@ -15,12 +15,15 @@
       {
         "label": "main",
         "title": "AiUsageTrayAgent",
-        "width": 360,
-        "height": 180,
+        "width": 960,
+        "height": 660,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
         "visible": false,
-        "skipTaskbar": true,
-        "decorations": false,
-        "resizable": false
+        "skipTaskbar": false,
+        "decorations": true,
+        "resizable": true
       }
     ],
     "security": {

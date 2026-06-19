@@ -12,7 +12,6 @@ use std::{
     time::Duration,
 };
 
-mod settings_panel;
 mod usage_dashboard;
 
 #[cfg(target_os = "windows")]
@@ -24,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
-    AppHandle, Manager, Runtime,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Manager, Runtime, State,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -222,14 +221,6 @@ struct TrayMenuItems<R: Runtime> {
     toggle_pause: MenuItem<R>,
 }
 
-/// Porta efêmera do servidor HTTP do dashboard de uso (0 = indisponível).
-#[derive(Debug, Clone, Copy)]
-struct DashboardPort(u16);
-
-/// Porta efêmera do servidor HTTP do painel de configurações (0 = indisponível).
-#[derive(Debug, Clone, Copy)]
-struct SettingsPort(u16);
-
 #[derive(Debug, Deserialize)]
 struct OpenCodeAuth {
     openai: Option<OpenAiAccess>,
@@ -306,9 +297,24 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .invoke_handler(tauri::generate_handler![
+            usage_dashboard::get_stats,
+            get_settings,
+            save_settings
+        ])
         .setup(|app| {
+            // Janela unica do app (Dashboard + Configuracoes). Comeca escondida
+            // (tray-only); o item "Abrir" do tray a exibe. Fechar pela X esconde
+            // em vez de encerrar, para o app continuar vivo no tray.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.hide();
+                let hide_target = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = hide_target.hide();
+                    }
+                });
             }
 
             let paths = ensure_storage()?;
@@ -325,35 +331,6 @@ pub fn run() {
 
             app.manage(paths.clone());
             app.manage(shared.clone());
-
-            let dashboard_port = match usage_dashboard::start_server() {
-                Ok(port) => port,
-                Err(error) => {
-                    let _ = append_log_line(
-                        &paths,
-                        "error",
-                        "Falha ao iniciar servidor do dashboard de uso.",
-                        Some(json!({ "error": error.to_string() })),
-                    );
-                    0
-                }
-            };
-            app.manage(DashboardPort(dashboard_port));
-
-            let settings_port =
-                match settings_panel::start_server(app.handle().clone(), paths.clone()) {
-                    Ok(port) => port,
-                    Err(error) => {
-                        let _ = append_log_line(
-                            &paths,
-                            "error",
-                            "Falha ao iniciar servidor do painel de configuracoes.",
-                            Some(json!({ "error": error.to_string() })),
-                        );
-                        0
-                    }
-                };
-            app.manage(SettingsPort(settings_port));
 
             // Autostart: liga por padrao na primeira execucao (marcada por um
             // arquivo). Nas execucoes seguintes, se continuar ligado, reaplica
@@ -391,13 +368,92 @@ pub fn run() {
         });
 }
 
+/// Corpo do POST de configuracoes: o config.json completo mais a preferencia de
+/// autostart (que nao mora no config.json, e' gerenciada pelo plugin).
+#[derive(Debug, Deserialize)]
+struct SaveSettings {
+    config: AppConfig,
+    #[serde(default)]
+    autostart: bool,
+}
+
+/// Estado exposto ao painel de configuracoes: o config.json (normalizado), a
+/// preferencia de autostart, o SO e o rotulo do autostart (para a UI).
+fn settings_value<R: Runtime>(app: &AppHandle<R>, paths: &RuntimePaths) -> Value {
+    let config = load_or_create_config(paths).unwrap_or_default();
+    let autostart = app.autolaunch().is_enabled().unwrap_or(false);
+
+    let mut value = json!({
+        "autostart": autostart,
+        "os": std::env::consts::OS,
+        "autostartLabel": autostart_label(),
+    });
+    value["config"] = serde_json::to_value(&config).unwrap_or(Value::Null);
+    value
+}
+
+fn autostart_label() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Iniciar com o Windows"
+    } else {
+        "Iniciar com o sistema"
+    }
+}
+
+/// Liga/desliga o autostart so' quando o estado pedido difere do atual.
+fn apply_autostart<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
+    let manager = app.autolaunch();
+    let currently = manager.is_enabled().unwrap_or(false);
+    if enabled != currently {
+        let _ = if enabled {
+            manager.enable()
+        } else {
+            manager.disable()
+        };
+    }
+}
+
+/// Le o estado atual (config + autostart) para preencher o painel.
+#[tauri::command]
+fn get_settings(app: AppHandle, paths: State<'_, RuntimePaths>) -> Value {
+    settings_value(&app, paths.inner())
+}
+
+/// Grava o config.json e aplica o autostart, devolvendo o estado ja' normalizado.
+/// A normalizacao (clamp de intervalo/fonte, validacao de cor) acontece na
+/// releitura; o worker detecta a mudanca pelo mtime e aplica tray/barra em ~1s.
+#[tauri::command]
+fn save_settings(
+    app: AppHandle,
+    paths: State<'_, RuntimePaths>,
+    settings: SaveSettings,
+) -> Result<Value, String> {
+    write_config(paths.inner(), &settings.config)
+        .map_err(|error| format!("falha ao salvar config.json: {error}"))?;
+    apply_autostart(&app, settings.autostart);
+    Ok(settings_value(&app, paths.inner()))
+}
+
 fn create_tray<R: Runtime>(app: &mut tauri::App<R>) -> tauri::Result<()> {
     let (menu, handles) = build_tray_menu(app.handle(), &RuntimeSnapshot::default())?;
     app.manage(handles);
 
+    // Clique esquerdo abre o app; clique direito abre o menu (padrao do Windows).
+    // `show_menu_on_left_click(false)` impede o menu no clique esquerdo; o menu no
+    // clique direito continua sendo o comportamento padrao da bandeja.
     TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .show_menu_on_left_click(true)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
         .icon(app.default_window_icon().unwrap().clone())
         .tooltip("AiUsageTrayAgent")
         .build(app)?;
@@ -436,20 +492,7 @@ fn build_tray_menu<R: Runtime>(
     let status_item = MenuItem::with_id(app, "status", status_text, false, None::<&str>)?;
     let codex_item = MenuItem::with_id(app, "codex_status", codex_text, false, None::<&str>)?;
     let claude_item = MenuItem::with_id(app, "claude_status", claude_text, false, None::<&str>)?;
-    let open_settings_item = MenuItem::with_id(
-        app,
-        "open_settings",
-        "Painel de configurações",
-        true,
-        None::<&str>,
-    )?;
-    let open_dashboard_item = MenuItem::with_id(
-        app,
-        "open_dashboard",
-        "Dashboard de uso",
-        true,
-        None::<&str>,
-    )?;
+    let open_app_item = MenuItem::with_id(app, "open_app", "Abrir", true, None::<&str>)?;
     let open_config_item =
         MenuItem::with_id(app, "open_config", "Abrir config.json", true, None::<&str>)?;
     let open_logs_item =
@@ -468,8 +511,7 @@ fn build_tray_menu<R: Runtime>(
         &codex_item,
         &claude_item,
         &separator_info,
-        &open_settings_item,
-        &open_dashboard_item,
+        &open_app_item,
         &open_config_item,
         &open_logs_item,
         &send_now_item,
@@ -515,29 +557,20 @@ fn update_tray_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &RuntimeSnapshot) 
     });
 }
 
+/// Exibe e foca a janela unica do app (Dashboard + Configuracoes). Acionada pelo
+/// item "Abrir" do tray; tambem desfaz a minimizacao caso esteja minimizada.
+fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
     match menu_id {
-        "open_dashboard" => {
-            let port = app
-                .try_state::<DashboardPort>()
-                .map(|state| state.0)
-                .unwrap_or(0);
-            if port == 0 {
-                handle_runtime_error(app, "Servidor do dashboard de uso nao esta disponivel.");
-            } else if let Err(error) = open_url(&format!("http://127.0.0.1:{port}/")) {
-                handle_runtime_error(app, &format!("Falha ao abrir dashboard: {error}"));
-            }
-        }
-        "open_settings" => {
-            let port = app
-                .try_state::<SettingsPort>()
-                .map(|state| state.0)
-                .unwrap_or(0);
-            if port == 0 {
-                handle_runtime_error(app, "Servidor do painel de configuracoes nao esta disponivel.");
-            } else if let Err(error) = open_url(&format!("http://127.0.0.1:{port}/")) {
-                handle_runtime_error(app, &format!("Falha ao abrir painel de configuracoes: {error}"));
-            }
+        "open_app" => {
+            show_main_window(app);
         }
         "open_config" => {
             if let Some(paths) = app.try_state::<RuntimePaths>() {
@@ -1310,29 +1343,6 @@ fn open_append_file(path: &Path) -> Result<File, Box<dyn std::error::Error>> {
         .create(true)
         .append(true)
         .open(path)?)
-}
-
-fn open_url(url: &str) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        return Ok(());
-    }
-
-    #[allow(unreachable_code)]
-    Err("Abertura de URL nao suportada neste sistema.".to_string())
 }
 
 fn open_path(path: &Path) -> Result<(), String> {

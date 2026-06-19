@@ -2,15 +2,189 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
     <title>AiUsageTrayAgent</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <p>AiUsageTrayAgent em execucao no tray.</p>
-    </main>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="spark">✳</span> AiUsage</div>
+        <nav class="nav">
+          <button type="button" class="nav-item on" data-view="dashboard">Dashboard</button>
+          <button type="button" class="nav-item" data-view="settings">Configurações</button>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <!-- ===== Dashboard ===== -->
+        <section id="view-dashboard" class="view on">
+          <h1><span class="spark">✳</span> Uso do Claude Code</h1>
+          <div class="panel">
+            <div class="toolbar">
+              <div class="tabs">
+                <button id="tab-geral" class="on">Visão Geral</button>
+                <button id="tab-modelos">Modelos</button>
+              </div>
+              <div class="ranges">
+                <button data-r="all" class="on">Todos</button>
+                <button data-r="30">30d</button>
+                <button data-r="7">7d</button>
+              </div>
+            </div>
+
+            <div id="view-geral">
+              <div class="cards" id="cards"></div>
+              <div class="heatwrap"><div class="heat" id="heat"></div></div>
+            </div>
+
+            <div id="view-modelos" class="hide">
+              <div id="chart"></div>
+              <div class="legend" id="legend"></div>
+            </div>
+
+            <div class="fact" id="fact"></div>
+            <div class="foot" id="foot"></div>
+          </div>
+        </section>
+
+        <!-- ===== Configurações ===== -->
+        <section id="view-settings" class="view">
+          <h1><span class="spark">✳</span> Configurações</h1>
+          <p class="sub">Salvas no <code>config.json</code> e aplicadas pelo app em ~1s, sem reiniciar.</p>
+
+          <div class="panel">
+            <div class="tabs settings-tabs">
+              <button class="on" data-stab="geral">Geral</button>
+              <button data-stab="codex">Codex</button>
+              <button data-stab="claude">Claude</button>
+              <button data-stab="barra">Barra de tarefas</button>
+              <button data-stab="sistema">Sistema</button>
+            </div>
+
+            <div id="settings-loading" class="loading">Carregando configurações…</div>
+
+            <div id="settings-form" hidden>
+              <!-- Geral -->
+              <div class="stab on" data-spanel="geral">
+                <p class="hint">Identificação e cadência de coleta/envio.</p>
+                <div class="row">
+                  <div class="field">
+                    <label for="set-usuario">Usuário</label>
+                    <input type="text" id="set-usuario" placeholder="seu-usuario">
+                    <div class="desc">Rótulo <code>usuario</code> enviado ao Loki. Vazio vira "desconhecido".</div>
+                  </div>
+                  <div class="field">
+                    <label for="set-intervalo">Intervalo de coleta (s)</label>
+                    <input type="number" id="set-intervalo" min="5" max="3600" step="1">
+                    <div class="desc">Entre 5 e 3600. Período entre coletas/envios.</div>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="set-lokiUrl">URL do Loki</label>
+                  <input type="text" id="set-lokiUrl" placeholder="http://loki.exemplo.local:3100/loki/api/v1/push">
+                  <div class="desc">Endpoint de <code>push</code> do Loki. Vazio desativa o envio.</div>
+                </div>
+              </div>
+
+              <!-- Codex -->
+              <div class="stab" data-spanel="codex">
+                <p class="hint">Coleta o uso do Codex a partir do <code>auth.json</code>.</p>
+                <div class="row">
+                  <div class="field">
+                    <label class="check"><input type="checkbox" id="set-codexHab"><span>Habilitado</span></label>
+                  </div>
+                  <div class="field">
+                    <label class="check"><input type="checkbox" id="set-codexTaskbar"><span>Mostrar na barra<span class="winonly">Windows</span></span></label>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="set-codexAuth">Caminho do auth.json</label>
+                  <input type="text" id="set-codexAuth" placeholder="C:\Users\usuario\.codex\auth.json">
+                </div>
+              </div>
+
+              <!-- Claude -->
+              <div class="stab" data-spanel="claude">
+                <p class="hint">Coleta o uso do Claude usando <code>organizationId</code> e o cookie de sessão.</p>
+                <div class="row">
+                  <div class="field">
+                    <label class="check"><input type="checkbox" id="set-claudeHab"><span>Habilitado</span></label>
+                  </div>
+                  <div class="field">
+                    <label class="check"><input type="checkbox" id="set-claudeTaskbar"><span>Mostrar na barra<span class="winonly">Windows</span></span></label>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="set-claudeOrg">Organization ID</label>
+                  <input type="text" id="set-claudeOrg" placeholder="org_...">
+                </div>
+                <div class="field">
+                  <label for="set-claudeCookie">Cookie de sessão</label>
+                  <div class="inline">
+                    <input type="password" id="set-claudeCookie" placeholder="sessionKey=...">
+                    <button type="button" class="btn btn-show" id="set-cookieToggle">Mostrar</button>
+                  </div>
+                  <div class="desc">Ex.: <code>sessionKey=...</code>. Se o cookie expirar, atualize aqui.</div>
+                </div>
+              </div>
+
+              <!-- Barra de tarefas -->
+              <div class="stab" data-spanel="barra">
+                <p class="hint">Aparência e posição do widget desenhado na barra (ignorado em Linux/macOS).</p>
+                <div class="row">
+                  <div class="field">
+                    <label for="set-barraLado">Lado</label>
+                    <select id="set-barraLado">
+                      <option value="direita">Direita</option>
+                      <option value="esquerda">Esquerda</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="set-barraDesloc">Deslocamento (px)</label>
+                    <input type="number" id="set-barraDesloc" step="1">
+                    <div class="desc">Negativo desloca para a <strong>esquerda</strong>; positivo, para a <strong>direita</strong>.</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="field">
+                    <label for="set-barraFonte">Tamanho da fonte (pt)</label>
+                    <input type="number" id="set-barraFonte" min="6" max="24" step="1">
+                  </div>
+                  <div class="field">
+                    <label for="set-barraCor">Cor da fonte</label>
+                    <div class="inline">
+                      <input type="text" id="set-barraCor" placeholder="auto ou #RRGGBB">
+                      <input type="color" id="set-barraCorPicker" value="#ffffff" title="Escolher cor">
+                    </div>
+                    <div class="desc"><code>auto</code> = preto/branco conforme a barra, ou um hex (ex.: <code>#FFD700</code>).</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sistema -->
+              <div class="stab" data-spanel="sistema">
+                <p class="hint">Integração com o sistema operacional.</p>
+                <div class="field">
+                  <label class="check"><input type="checkbox" id="set-autostart"><span id="set-autostartLabel">Iniciar com o sistema</span></label>
+                  <div class="desc">Inicia o app automaticamente no login.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-bar">
+              <span id="settings-msg" class="msg grow"></span>
+              <button type="button" class="btn" id="settings-reload">Recarregar</button>
+              <button type="button" class="btn save" id="settings-save" disabled>Salvar</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="pill" class="pill hide"></div>
+    <div id="tip" class="tip hide"></div>
   </body>
 </html>

@@ -6,11 +6,12 @@ O projeto foi feito com:
 
 - Tauri v2
 - Rust no backend
-- Vite + TypeScript no frontend mínimo
+- Vite + TypeScript no frontend (UI nativa em webview)
 
 ## O que ele faz
 
 - Inicia no tray sem abrir janela principal para o usuário
+- Tem uma janela nativa (webview) com **Dashboard** e **Configurações**
 - Coleta uso do Codex e do Claude em intervalo configurável
 - Envia logs estruturados JSON para Loki
 - Mantém logs locais
@@ -102,36 +103,45 @@ Payload interno:
 
 O timestamp do Loki é enviado em nanossegundos no campo `values`.
 
-## Menu do tray
+## Tray (ícone na bandeja)
+
+- **Clique esquerdo** no ícone: abre a janela do app (Dashboard/Configurações).
+- **Clique direito** no ícone: abre o menu.
+
+Itens do menu:
 
 - Status atual
 - Codex atual
 - Claude atual
-- **Painel de configurações**: abre no navegador uma tela com **todas as opções
-  do `config.json`** (mais o "iniciar com o sistema"). Veja abaixo.
-- Dashboard de uso
+- **Abrir**: abre a janela do app (mesma ação do clique esquerdo).
 - Abrir `config.json`
 - Abrir pasta de logs
 - Enviar agora
 - Pausar/retomar coleta
-- **Mostrar na barra de tarefas** (somente Windows): um item com check por IA
-  (`Codex` e `Claude`) para ligar/desligar a exibição na barra. O estado de cada
-  item reflete o campo `mostraNaTaskbarWindows` da `config.json` (que é a fonte
-  da verdade) e a alteração é **salva no arquivo**, então a escolha persiste
-  entre reinícios. Se a IA estiver `"habilitado": false`, o item aparece
-  desabilitado (esmaecido) e nunca é exibido na barra.
-- **Iniciar com o Windows**: item com check para ligar/desligar a inicialização
-  automática com o sistema.
 - Sair
 
-> A exibição de cada IA na barra de tarefas e a inicialização automática deixaram
-> de ser itens do tray; agora são editadas no **Painel de configurações**.
+> A exibição de cada IA na barra de tarefas e a inicialização automática não são
+> itens do tray; são editadas nas **Configurações** do app (abas Barra de
+> tarefas e Sistema).
 
-## Painel de configurações
+## Janela do app (Dashboard e Configurações)
 
-O item **Painel de configurações** abre uma página local (servida em
-`127.0.0.1`, mesma abordagem do dashboard) com um formulário que cobre **todas as
-opções do `config.json`**:
+A interface é uma janela nativa (webview do Tauri), aberta pelo clique esquerdo
+no tray ou pelo item **Abrir**. Não usa navegador nem servidor HTTP local: o
+frontend conversa com o backend Rust por comandos (IPC). Um menu lateral troca
+entre duas seções. Fechar pela janela (X) **esconde** o app (continua no tray).
+
+### Dashboard
+
+Replica o painel de uso do Claude Code lendo as mesmas fontes locais
+(`~/.claude/projects/**/*.jsonl` e `~/.claude/stats-cache.json`): cards de
+resumo, heatmap de atividade e gráfico de tokens por modelo. Os dados vêm do
+comando `get_stats` e são recarregados ao reabrir a janela.
+
+### Configurações
+
+Formulário com **abas** que cobre **todas as opções do `config.json`** (mais o
+"iniciar com o sistema"):
 
 - **Geral**: `usuario`, `intervaloSegundos`, `loki.url`.
 - **Codex**: `habilitado`, `authJsonPath`, `mostraNaTaskbarWindows`.
@@ -151,11 +161,12 @@ envio extra** ao Loki. O autostart é aplicado na hora.
 O app usa o `tauri-plugin-autostart` (chave `HKCU\...\Run` no Windows) e vem
 **habilitado por padrão na primeira execução**. Depois disso:
 
-- O estado é controlado pela opção **Iniciar com o sistema** no Painel de
-  configurações.
+- O estado é controlado pela opção **Iniciar com o sistema** na aba **Sistema**
+  das Configurações.
 - Se continuar ligado, o caminho do executável é reaplicado a cada início
   (evita apontar para um caminho antigo após atualizar/reinstalar).
-- Se o usuário desligar pelo painel, permanece desligado nas próximas execuções.
+- Se o usuário desligar pelas Configurações, permanece desligado nas próximas
+  execuções.
 
 ## Barra de tarefas (Windows)
 
@@ -173,7 +184,7 @@ No Windows o app desenha o uso diretamente na barra de tarefas. Cada provedor
 - Provedores com `"habilitado": false` no `config.json` não aparecem na barra.
 - A exibição de cada provedor na barra é controlada por
   `providers.<ia>.mostraNaTaskbarWindows` (padrão `true`). Você pode alterar isso
-  pelo **Painel de configurações** ou editando o `config.json` direto; nos dois
+  pelas **Configurações** do app ou editando o `config.json` direto; nos dois
   casos vale em ~1s. Só aparece na barra quando `habilitado` **e**
   `mostraNaTaskbarWindows` forem `true`.
 - Em Linux/macOS o campo `mostraNaTaskbarWindows` é lido mas **ignorado**: o
@@ -263,9 +274,9 @@ O repositório já está preparado para gerar:
 
 Arquivos relevantes:
 
-- Workflow único de build/release: [.github/workflows/release.yml](C:/Projetos/codex/ai-usage-tray-agent/.github/workflows/release.yml)
-- Config Windows: [src-tauri/tauri.windows.conf.json](C:/Projetos/codex/ai-usage-tray-agent/src-tauri/tauri.windows.conf.json)
-- Config Linux: [src-tauri/tauri.linux.conf.json](C:/Projetos/codex/ai-usage-tray-agent/src-tauri/tauri.linux.conf.json)
+- Workflow único de build/release: [.github/workflows/release.yml](.github/workflows/release.yml)
+- Config Windows: [src-tauri/tauri.windows.conf.json](src-tauri/tauri.windows.conf.json)
+- Config Linux: [src-tauri/tauri.linux.conf.json](src-tauri/tauri.linux.conf.json)
 
 O workflow de release roda:
 
@@ -278,7 +289,7 @@ Para publicar no GitHub Releases, garanta que o repositório permita `GITHUB_TOK
 
 Exemplo sanitizado:
 
-- [docs/grafana-dashboard.example.json](C:/Projetos/codex/ai-usage-tray-agent/docs/grafana-dashboard.example.json)
+- [docs/grafana-dashboard.example.json](docs/grafana-dashboard.example.json)
 
 Esse arquivo mantém:
 
@@ -308,20 +319,19 @@ Codex:
 ## Estrutura do projeto
 
 ```text
+index.html            # janela unica do app (menu lateral + secoes)
 src/
-  main.ts
+  main.ts             # shell: navegacao entre Dashboard e Configuracoes
+  dashboard.ts        # dashboard de uso (consome o comando get_stats)
+  settings.ts         # configuracoes (consome get_settings/save_settings)
   styles.css
 
 src-tauri/
   src/
-    lib.rs
+    lib.rs             # tray, worker de coleta e comandos IPC (get_stats/get_settings/save_settings)
     main.rs
-    usage_dashboard.rs
-    settings_panel.rs   # servidor do painel de configuracoes (GET/POST)
-    taskbar_widget.rs   # widget da barra de tarefas (somente Windows)
-  assets/
-    usage-dashboard.html
-    settings-panel.html # formulario do painel de configuracoes
+    usage_dashboard.rs # coleta as estatisticas do dashboard
+    taskbar_widget.rs  # widget da barra de tarefas (somente Windows)
   tauri.conf.json
   tauri.windows.conf.json
   tauri.linux.conf.json

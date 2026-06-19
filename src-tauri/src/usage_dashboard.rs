@@ -4,24 +4,20 @@
 //   2. ~/.claude/stats-cache.json     — baseline histórico consolidado antes do cleanup
 // Para bater com o Desktop, a contagem NÃO deduplica linhas repetidas de message.id
 // (sessões retomadas copiam linhas pro novo arquivo) — é assim que o app oficial conta.
-// Servidor HTTP minimal em std::net, bind em 127.0.0.1:0 (porta efêmera do SO).
+// Os dados sao expostos ao frontend pelo comando Tauri `get_stats` (IPC); a UI
+// vive na webview nativa (sem servidor HTTP/navegador).
 
 use std::{
     collections::HashMap,
     fs,
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::Mutex,
-    thread,
     time::{Instant, SystemTime},
 };
 
 use chrono::{DateTime, Local, Timelike};
 use serde::Serialize;
 use serde_json::{json, Value};
-
-const DASHBOARD_HTML: &str = include_str!("../assets/usage-dashboard.html");
 
 #[derive(Debug, Clone, Default, Serialize)]
 struct ModelTotals {
@@ -372,35 +368,12 @@ fn collect_stats() -> Value {
     })
 }
 
-fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0u8; 4096];
-    let read = stream.read(&mut buffer).unwrap_or(0);
-    if read == 0 {
-        return;
-    }
-    let request = String::from_utf8_lossy(&buffer[..read]);
-    let path = request.split_whitespace().nth(1).unwrap_or("/");
-
-    let (status, content_type, body) = match path {
-        "/" | "/index.html" => (
-            "200 OK",
-            "text/html; charset=utf-8",
-            DASHBOARD_HTML.to_string(),
-        ),
-        "/api/stats" => (
-            "200 OK",
-            "application/json; charset=utf-8",
-            collect_stats().to_string(),
-        ),
-        _ => ("404 Not Found", "text/plain; charset=utf-8", "not found".to_string()),
-    };
-
-    let header = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    let _ = stream.write_all(header.as_bytes());
-    let _ = stream.write_all(body.as_bytes());
+/// Comando IPC consumido pela webview do dashboard. Roda como `async` para sair
+/// da thread principal; a coleta em si e' sincrona (fs + parse), com cache por
+/// arquivo (mtime/size), entao chamadas repetidas sao baratas.
+#[tauri::command]
+pub async fn get_stats() -> Value {
+    collect_stats()
 }
 
 #[cfg(test)]
@@ -431,37 +404,4 @@ mod tests {
             println!("{model}: {input} in / {out} out");
         }
     }
-
-    #[test]
-    fn server_serves_html_and_stats() {
-        let port = start_server().expect("servidor deve iniciar em porta efemera");
-        assert_ne!(port, 0);
-
-        let html = reqwest::blocking::get(format!("http://127.0.0.1:{port}/"))
-            .expect("GET /")
-            .text()
-            .expect("body html");
-        assert!(html.contains("Uso do Claude Code"));
-
-        let stats = reqwest::blocking::get(format!("http://127.0.0.1:{port}/api/stats"))
-            .expect("GET /api/stats")
-            .text()
-            .expect("body json");
-        assert!(stats.contains("\"days\""));
-    }
-}
-
-/// Inicia o servidor do dashboard em uma porta efêmera (127.0.0.1:0) e
-/// retorna a porta sorteada pelo sistema operacional.
-pub fn start_server() -> std::io::Result<u16> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-
-    thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            thread::spawn(move || handle_connection(stream));
-        }
-    });
-
-    Ok(port)
 }
