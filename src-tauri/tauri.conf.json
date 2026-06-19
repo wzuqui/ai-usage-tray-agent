@@ -11,21 +11,7 @@
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      {
-        "label": "main",
-        "title": "AiUsageTrayAgent",
-        "width": 960,
-        "height": 660,
-        "minWidth": 720,
-        "minHeight": 520,
-        "center": true,
-        "visible": false,
-        "skipTaskbar": false,
-        "decorations": true,
-        "resizable": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

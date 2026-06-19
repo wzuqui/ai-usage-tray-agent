@@ -6,7 +6,7 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     thread,
     time::Duration,
@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime, State,
+    AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -305,19 +305,11 @@ pub fn run() {
             force_collect
         ])
         .setup(|app| {
-            // Janela unica do app (Dashboard + Configuracoes). Comeca escondida
-            // (tray-only); o item "Abrir" do tray a exibe. Fechar pela X esconde
-            // em vez de encerrar, para o app continuar vivo no tray.
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.hide();
-                let hide_target = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = hide_target.hide();
-                    }
-                });
-            }
+            // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
+            // em show_main_window (tray-only). Fechar pela X destroi a janela e
+            // libera o WebView2 (~140 MB); reabrir recria. O app continua vivo no
+            // tray porque prevent_exit no run loop impede a saida ao fechar a ultima
+            // janela.
 
             let paths = ensure_storage()?;
             // Garante que o config.json exista e esteja normalizado (campos
@@ -373,8 +365,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                if let Some(state) = app_handle.try_state::<Arc<SharedState>>() {
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+                if code.is_none() {
+                    // Saida disparada por fechar a ultima janela (X do dashboard):
+                    // o app e' tray-only, entao impede a saida e segue rodando.
+                    api.prevent_exit();
+                } else if let Some(state) = app_handle.try_state::<Arc<SharedState>>() {
+                    // Saida real (menu "Sair" -> app.exit): sinaliza o worker.
                     state.stop.store(true, Ordering::Relaxed);
                 }
             }
@@ -616,12 +613,30 @@ fn update_tray_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &RuntimeSnapshot) 
 }
 
 /// Exibe e foca a janela unica do app (Dashboard + Configuracoes). Acionada pelo
-/// item "Abrir" do tray; tambem desfaz a minimizacao caso esteja minimizada.
+/// item "Abrir" do tray. Se a janela ja existe, apenas a traz ao foco (desfazendo
+/// a minimizacao); senao, a cria sob demanda. Fechar a janela a destroi (libera o
+/// WebView2), entao a proxima abertura recai no caminho de criacao.
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        return;
+    }
+
+    let result = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+        .title("AiUsageTrayAgent")
+        .inner_size(960.0, 660.0)
+        .min_inner_size(720.0, 520.0)
+        .center()
+        .resizable(true)
+        .decorations(true)
+        .build();
+    match result {
+        Ok(window) => {
+            let _ = window.set_focus();
+        }
+        Err(error) => handle_runtime_error(app, &format!("Falha ao abrir a janela: {error}")),
     }
 }
 
@@ -757,6 +772,22 @@ fn config_mtime(paths: &RuntimePaths) -> Option<std::time::SystemTime> {
         .ok()
 }
 
+/// Cliente HTTP compartilhado entre ciclos de coleta. Construido uma unica vez
+/// (lazy) para reaproveitar o pool de conexoes/keep-alive e evitar recriar o
+/// runtime interno do reqwest a cada ciclo. `Client` e' Arc por dentro, entao
+/// clonar e' barato e compartilha o mesmo pool.
+fn http_client() -> Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| Client::new())
+        })
+        .clone()
+}
+
 fn run_collection_cycle<R: Runtime>(
     app: &AppHandle<R>,
     paths: &RuntimePaths,
@@ -764,10 +795,7 @@ fn run_collection_cycle<R: Runtime>(
 ) -> Result<(), String> {
     let _lock = shared.cycle_lock.lock().unwrap();
     let config = load_or_create_config(paths).map_err(|error| error.to_string())?;
-    let client = Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = http_client();
 
     let mut had_error = false;
 
