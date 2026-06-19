@@ -349,7 +349,18 @@ pub fn run() {
             create_tray(app)?;
 
             #[cfg(target_os = "windows")]
-            taskbar_widget::start();
+            {
+                // Clicar no widget da barra abre a janela do app (mesma acao do
+                // clique esquerdo no tray). A thread do widget nao tem o
+                // AppHandle, entao registramos um callback; ele despacha para a
+                // main thread, onde as operacoes de janela sao seguras.
+                let app_handle = app.handle().clone();
+                taskbar_widget::set_on_activate(move || {
+                    let handle = app_handle.clone();
+                    let _ = app_handle.run_on_main_thread(move || show_main_window(&handle));
+                });
+                taskbar_widget::start();
+            }
 
             refresh_tray(app.handle(), &shared)?;
             start_worker(app.handle().clone(), paths.clone(), shared.clone());

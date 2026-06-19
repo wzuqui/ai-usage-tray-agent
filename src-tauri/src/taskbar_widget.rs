@@ -67,6 +67,8 @@ static FONT_POINT: AtomicI32 = AtomicI32::new(FONT_POINT_DEFAULT);
 /// Cor da fonte como COLORREF (0x00BBGGRR) ou -1 = automatico (preto/branco
 /// conforme a cor real da barra). Configuravel via `barraTarefas.corFonte`.
 static FONT_COLOR: AtomicI32 = AtomicI32::new(-1);
+/// Callback acionado quando o usuario clica num widget (abrir a janela do app).
+static ON_ACTIVATE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 
 fn state() -> &'static Mutex<Vec<ProviderState>> {
     STATE.get_or_init(|| {
@@ -143,6 +145,12 @@ pub fn set_font_color(rgb: Option<(u8, u8, u8)>) {
         None => -1,
     };
     FONT_COLOR.store(value, Ordering::Relaxed);
+}
+
+/// Registra o callback chamado quando o usuario clica num widget (ex.: mostrar a
+/// janela do app). So o primeiro registro vale.
+pub fn set_on_activate<F: Fn() + Send + Sync + 'static>(callback: F) {
+    let _ = ON_ACTIVATE.set(Box::new(callback));
 }
 
 /// Cor da fonte configurada, ou `None` se estiver em modo automatico.
@@ -291,8 +299,13 @@ unsafe fn create_widget(taskbar: HWND, index: usize) -> Option<HWND> {
     // Janelas com parent em outro processo nao podem ser criadas direto como
     // WS_CHILD (CreateWindowEx retorna ERROR_ALREADY_EXISTS). Cria-se como
     // top-level WS_POPUP oculta e depois reparenta-se com SetParent.
+    //
+    // Sem WS_EX_TRANSPARENT: o widget recebe cliques (WM_LBUTTONUP) para abrir o
+    // app. WS_EX_NOACTIVATE mantem o foco onde estava (nao "rouba" ativacao); os
+    // pixels do color-key continuam deixando o clique passar, entao o alvo
+    // clicavel e' efetivamente o texto.
     let result = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
+        WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         CLASS_NAME,
         PCWSTR::null(),
         WS_POPUP,
@@ -852,6 +865,23 @@ unsafe extern "system" fn wnd_proc(
         WM_APP_UPDATE => {
             let _ = InvalidateRect(Some(hwnd), None, true);
             LRESULT(0)
+        }
+        WM_LBUTTONUP => {
+            // Clique no widget: abre a janela do app (mesma acao do clique no tray).
+            if let Some(callback) = ON_ACTIVATE.get() {
+                callback();
+            }
+            LRESULT(0)
+        }
+        WM_SETCURSOR => {
+            // Mantem a seta padrao sobre o widget. Sem isto, como a classe nao tem
+            // cursor, o DefWindowProc repassa o WM_SETCURSOR para a barra (outro
+            // processo) e o cursor pode virar ampulheta. Tratamos aqui e
+            // retornamos TRUE para encerrar o processamento.
+            if let Ok(cursor) = LoadCursorW(None, IDC_ARROW) {
+                let _ = SetCursor(Some(cursor));
+            }
+            LRESULT(1)
         }
         WM_DESTROY => {
             let index = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as usize;
