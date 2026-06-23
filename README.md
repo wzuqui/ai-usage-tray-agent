@@ -17,18 +17,22 @@ O projeto foi feito com:
 - Mantém logs locais
 - Mostra status resumido no tray
 - No Windows, exibe o uso direto na barra de tarefas
+- No Windows, oferece um **widget flutuante na área de trabalho** com os cards de uso
 - Permite pausar, retomar e forçar envio pelo menu do tray
 
 ## Status atual
 
-MVP funcional com:
+Funcional, com:
 
 - Coleta real do Codex usando `auth.json`
 - Coleta real do Claude usando `organizationId` e `sessionKey`
 - Envio para Loki sem `tenant` e sem `basic auth`
-- Empacotamento planejado para:
-- Windows: instalador `.msi`
-- Linux: `AppImage`
+- Janela do app com **Uso atual**, **Dashboard Claude** e **Configurações** (com
+  abas e **auto-save**)
+- Widget na barra de tarefas (Windows) e **widget flutuante na área de trabalho**
+- Empacotamento pronto:
+  - Windows: instalador `.msi` e `AiUsageTrayAgent-portable.exe` (portátil)
+  - Linux: `AppImage`
 
 ## Configuração
 
@@ -77,10 +81,24 @@ Exemplo:
     "deslocamento": 0,
     "tamanhoFonte": 9,
     "corFonte": "auto",
-    "formatoReset": "restante"
+    "formatoReset": "restante",
+    "janelas": "ambos"
+  },
+  "widget": {
+    "habilitado": false,
+    "mostraClaude": true,
+    "mostraCodex": true,
+    "sempreNaFrente": true,
+    "opacidade": 90,
+    "janelas": "ambos",
+    "formatoReset": "restante",
+    "fundo": ""
   }
 }
 ```
+
+> `janelas` (na barra e no widget) controla quais janelas aparecem: `"ambos"`
+> (sessão 5h e semanal 7d), `"sessao"` (só 5h) ou `"semanal"` (só 7d).
 
 ## Formato enviado para o Loki
 
@@ -158,14 +176,20 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
 - **Claude**: `habilitado`, `organizationId`, `cookie` (com mostrar/ocultar).
 - **Barra de tarefas** (Windows): exibir cada provedor na barra
   (`providers.<ia>.mostraNaTaskbarWindows`), `lado`, `deslocamento`,
-  `tamanhoFonte`, `corFonte` (com seletor de cor) e `formatoReset` (tempo
-  restante ou hora/data exata).
+  `tamanhoFonte`, `corFonte` (com seletor de cor), `formatoReset` (tempo
+  restante ou hora/data exata) e `janelas` (quais janelas exibir).
+- **Widget**: liga o widget da área de trabalho e configura o que ele mostra —
+  `habilitado`, `mostraClaude`, `mostraCodex`, `sempreNaFrente`, `janelas`,
+  `formatoReset`, imagem/gif de `fundo` (com seletor de arquivo) e `opacidade`
+  do painel.
 - **Sistema**: **Iniciar com o sistema** (autostart) — não fica no `config.json`,
   é gerenciado pelo `tauri-plugin-autostart`.
 
-Ao salvar, o `config.json` é gravado (com normalização: clamp de intervalo/fonte,
+Não há botão "Salvar": as alterações têm **auto-save** (com debounce) — qualquer
+mudança grava o `config.json` sozinha (com normalização: clamp de intervalo/fonte,
 validação de cor) e o app aplica tudo em ~1s, **sem reiniciar e sem disparar um
-envio extra** ao Loki. O autostart é aplicado na hora.
+envio extra** ao Loki. O autostart é aplicado na hora. No topo da tela há um botão
+**Recarregar** (geral) para reler os valores do disco.
 
 ## Inicialização automática
 
@@ -259,6 +283,31 @@ Limitações:
 No Linux esse recurso não se aplica; o uso continua disponível no tooltip e no
 título do tray.
 
+## Widget da área de trabalho
+
+Além da barra de tarefas, o app pode abrir um **widget flutuante na área de
+trabalho**: uma janela sem moldura, opcionalmente sempre na frente, com um card
+compacto por provedor (Claude/Codex). Os dados vêm do comando `get_widget_state`
+(mesmo snapshot do tray/"Uso atual", sem rede). É ligado pela aba **Widget** das
+Configurações (ou por `widget.habilitado` no `config.json`) e aplicado em ~1s,
+sem reiniciar.
+
+- **Conteúdo**: `mostraClaude`/`mostraCodex` escolhem quais provedores aparecem
+  (além de o provedor estar `habilitado`); `janelas` e `formatoReset` funcionam
+  igual aos da barra (sessão/semanal e tempo restante vs. hora/data exata).
+- **Posição e tamanho**: arraste a janela para reposicionar e redimensione pelas
+  bordas; a posição e o tamanho são lembrados entre execuções. Na primeira vez o
+  widget ajusta a altura ao conteúdo.
+- **Sempre na frente**: `sempreNaFrente` mantém o widget acima das demais janelas.
+- **Fundo**: `fundo` aceita uma imagem ou GIF (PNG, JPG, GIF, WEBP ou BMP) aplicada
+  como plano de fundo do painel; lido sob demanda via `read_widget_background`.
+  Vazio = sem fundo (só o painel escuro). A `opacidade` (0–100) controla o quanto
+  o fundo aparece atrás dos cards.
+- Os cantos arredondados são feitos pelo DWM na própria janela (sem
+  transparência do WebView), evitando serrilhado nas curvas.
+
+Em macOS o widget é ignorado.
+
 ## Rodando localmente
 
 Pré-requisitos:
@@ -335,17 +384,22 @@ Codex:
 ## Estrutura do projeto
 
 ```text
-index.html            # janela unica do app (menu lateral + secoes)
+index.html            # janela principal do app (menu lateral + secoes)
+widget.html           # janela do widget flutuante da area de trabalho
 src/
   main.ts             # shell: navegacao entre Uso atual, Dashboard Claude e Configuracoes
   usage.ts            # tela "Uso atual" (consome get_usage/force_collect)
+  usage-format.ts     # helpers de formatacao/icones compartilhados (uso, reset, cores)
   dashboard.ts        # dashboard de uso do Claude Code (consome get_stats)
-  settings.ts         # configuracoes (consome get_settings/save_settings)
+  settings.ts         # configuracoes com abas e auto-save (consome get_settings/save_settings)
+  widget.ts           # widget da area de trabalho (consome get_widget_state)
   styles.css
 
 src-tauri/
   src/
-    lib.rs             # tray, worker de coleta e comandos IPC (get_stats/get_settings/save_settings/get_usage/force_collect)
+    lib.rs             # tray, worker de coleta, janela do widget e comandos IPC
+                       # (get_stats/get_settings/save_settings/get_usage/force_collect/
+                       #  get_widget_state/read_widget_background/pick_widget_background)
     main.rs
     usage_dashboard.rs # coleta as estatisticas do dashboard
     taskbar_widget.rs  # widget da barra de tarefas (somente Windows)

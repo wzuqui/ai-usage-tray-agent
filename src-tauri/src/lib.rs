@@ -657,29 +657,47 @@ fn mime_from_path(path: &str) -> &'static str {
 }
 
 /// Abre o seletor de arquivo nativo para escolher a imagem/gif de fundo do
-/// widget. Devolve o caminho escolhido, ou `None` se o usuario cancelar. Quem
-/// persiste e' o "Salvar" das Configuracoes (mesmo fluxo dos demais campos).
+/// widget. Devolve o caminho escolhido, ou `None` se o usuario cancelar.
+///
+/// `async` de proposito: comandos sincronos do Tauri rodam na main thread, e
+/// `blocking_pick_file` abriria um loop modal aninhado ali (travando o event loop
+/// e o tray, e fazendo o widget reaparecer na barra de tarefas). Como `async`, o
+/// comando roda fora da main thread; o `spawn_blocking` isola a chamada modal
+/// numa thread de bloqueio, sem tocar na main thread.
 #[tauri::command]
-fn pick_widget_background(app: AppHandle) -> Option<String> {
-    use tauri_plugin_dialog::DialogExt;
-    app.dialog()
-        .file()
-        .add_filter("Imagens e GIFs", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
-        .blocking_pick_file()
-        .and_then(|file| file.into_path().ok())
-        .map(|path| path.to_string_lossy().to_string())
+async fn pick_widget_background(app: AppHandle) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("Imagens e GIFs", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+            .blocking_pick_file()
+            .and_then(|file| file.into_path().ok())
+            .map(|path| path.to_string_lossy().to_string())
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Abre o menu do app (mesmos itens do tray) na posicao do cursor. Chamado pelo
 /// clique direito no widget da area de trabalho; reusa o mesmo menu nativo do
 /// widget da barra (que ja' roteia o item escolhido para `handle_menu_event`).
-/// So' Windows: em outros SOs e' um no-op. Roda na main thread, que tem o loop
-/// de mensagens necessario para o menu modal.
+/// So' Windows: em outros SOs e' um no-op.
+///
+/// Roda numa thread propria (NAO na main thread): `show_context_menu` abre um
+/// `TrackPopupMenu`, que e' um loop modal proprio. Na main thread ele aninharia
+/// no event loop do tao e deixaria a janela aberta em seguida (ex.: "Abrir") em
+/// branco — o WebView2 nao inicializa nesse estado reentrante. O `TrackPopupMenu`
+/// pumpa as proprias mensagens e cria a janela-dona, entao funciona fora da main
+/// thread (mesmo caminho do clique direito no widget da barra). O item escolhido
+/// e' despachado para a main thread pelo callback `set_on_menu_command`.
 #[tauri::command]
 fn show_app_menu(app: AppHandle) {
     #[cfg(target_os = "windows")]
     {
-        let _ = app.run_on_main_thread(|| unsafe { taskbar_widget::show_context_menu() });
+        let _ = app;
+        std::thread::spawn(|| unsafe { taskbar_widget::show_context_menu() });
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -701,7 +719,10 @@ fn show_widget_window<R: Runtime>(app: &AppHandle<R>, config: &AppConfig) {
         .inner_size(320.0, 180.0)
         .min_inner_size(160.0, 120.0)
         .decorations(false)
-        .transparent(true)
+        // Janela OPACA: no Windows o DWM arredonda/recorta os cantos da janela
+        // (mostrando o desktop atras) em hardware, sem serrilhado. Janela
+        // transparente + arredondamento no CSS deixava o "canto escuro" (o
+        // anti-aliasing da curva do WebView2 contra o fundo transparente).
         .skip_taskbar(true)
         .always_on_top(config.widget.sempre_na_frente)
         // Redimensionavel pelo usuario; o tamanho e' salvo (window-state). Na
@@ -716,8 +737,106 @@ fn show_widget_window<R: Runtime>(app: &AppHandle<R>, config: &AppConfig) {
             use tauri_plugin_window_state::{StateFlags, WindowExt};
             // Reaplica a ultima posicao/tamanho salvos (no-op na primeira vez).
             let _ = window.restore_state(StateFlags::POSITION | StateFlags::SIZE);
+            // Arredonda os cantos pelo DWM (limpo, em hardware) e remove a borda
+            // que o Windows 11 desenha em toda janela top-level.
+            #[cfg(target_os = "windows")]
+            if let Ok(hwnd) = window.hwnd() {
+                let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+                round_widget_window(hwnd);
+                // Remove a "linha branca" do topo de janelas sem moldura e
+                // redimensionaveis (tao deixa 1px do topo fora da area cliente).
+                widget_frame::install(hwnd);
+            }
         }
         Err(error) => handle_runtime_error(app, &format!("Falha ao abrir o widget: {error}")),
+    }
+}
+
+/// Subclasse da janela do widget para corrigir a "linha branca" no topo das
+/// janelas sem moldura (`decorations:false`) e redimensionaveis no Windows: o
+/// `WM_NCCALCSIZE` do tao deixa o pixel do topo fora da area cliente, e a borda
+/// da janela aparece ali. Aqui reivindicamos esse pixel (a area cliente passa a
+/// cobrir o topo inteiro), preservando o resize/snap do tao (so' ajustamos o
+/// retangulo cliente em 1px; o restante segue pelo proc original).
+#[cfg(target_os = "windows")]
+mod widget_frame {
+    use std::sync::atomic::{AtomicIsize, Ordering};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CallWindowProcW, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, NCCALCSIZE_PARAMS,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_NCCALCSIZE,
+        WNDPROC,
+    };
+
+    static PREV_PROC: AtomicIsize = AtomicIsize::new(0);
+
+    pub fn install(hwnd: HWND) {
+        unsafe {
+            let prev = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, subclass_proc as *const () as isize);
+            PREV_PROC.store(prev, Ordering::SeqCst);
+            // Forca um recalculo do frame (dispara WM_NCCALCSIZE) para o ajuste do
+            // topo valer ja' na primeira exibicao — senao a linha branca so' some
+            // depois do primeiro redimensionamento.
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+
+    unsafe extern "system" fn subclass_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        let prev: WNDPROC = std::mem::transmute(PREV_PROC.load(Ordering::SeqCst));
+        if msg == WM_NCCALCSIZE && wparam.0 != 0 {
+            let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
+            // rgrc[0] entra como o retangulo da janela; guarda o topo antes de o
+            // proc original transformar em retangulo cliente.
+            let window_top = params.rgrc[0].top;
+            let result = CallWindowProcW(prev, hwnd, msg, wparam, lparam);
+            // Faz a area cliente cobrir o pixel do topo (some a linha branca).
+            params.rgrc[0].top = window_top;
+            return result;
+        }
+        CallWindowProcW(prev, hwnd, msg, wparam, lparam)
+    }
+}
+
+/// Arredonda a janela do widget pelo proprio DWM (Windows 11) — recorte limpo,
+/// em hardware, sem o serrilhado que o arredondamento via CSS deixava nos cantos
+/// (anti-aliasing contra o fundo transparente do WebView2). Tambem remove a borda
+/// fina que o Windows desenha (`DWMWA_COLOR_NONE`). Em Windows 10 os atributos
+/// sao ignorados (erro silencioso) — la' o widget fica com cantos retos.
+#[cfg(target_os = "windows")]
+fn round_widget_window(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
+        DWMWCP_ROUND,
+    };
+    unsafe {
+        let pref = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &pref as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&pref) as u32,
+        );
+        // 0xFFFFFFFE = DWMWA_COLOR_NONE (remove a borda desenhada pelo DWM).
+        let color: u32 = 0xFFFF_FFFE;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &color as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&color) as u32,
+        );
     }
 }
 

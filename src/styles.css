@@ -146,9 +146,8 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .btn.save:hover { background: #e08a6d; }
 .btn.save:disabled { opacity: .55; cursor: default; }
 .winonly { color: #6f6c64; font-size: 11px; border: 1px solid #34322d; border-radius: 6px; padding: 1px 6px; margin-left: 8px; }
-.settings-bar { display: flex; align-items: center; gap: 12px; justify-content: flex-end;
-  border-top: 1px solid #34322d; margin: 8px -18px -18px; padding: 14px 18px; }
-.settings-bar .grow { margin-right: auto; }
+.settings-head { display: flex; align-items: center; gap: 12px; }
+.settings-head h1 { margin-right: auto; }
 .msg { font-size: 13.5px; }
 .msg.ok { color: #7fc99a; }
 .msg.err { color: #e0816f; }
@@ -165,33 +164,28 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .uprov-name svg.pico { flex: none; }
 
 /* ===== Widget da área de trabalho (widget.html) ===== */
-/* Janela sem moldura e transparente: o fundo do body precisa ser transparente
-   para os cantos arredondados do painel aparecerem sobre a área de trabalho. */
-.widget-body { background: transparent; overflow: hidden; }
+/* Janela OPACA: os cantos arredondados sao feitos pelo DWM na propria janela
+   (ver round_widget_window no lib.rs), mostrando o desktop atras sem precisar de
+   transparencia do WebView — que deixava "canto escuro" (serrilhado) nas curvas.
+   O fundo escuro precisa cobrir a janela inteira. */
+.widget-body { background: #1a1915; overflow: hidden; }
 .wdg {
   position: relative;
-  /* Preenche a janela (inclusive quando o usuario redimensiona); na primeira
-     vez o widget.ts ajusta a altura da janela ao conteudo. */
+  /* Preenche a janela inteira (inclusive quando o usuario redimensiona). NAO
+     arredonda no CSS: quem arredonda e' o DWM (cantos limpos). Na primeira vez o
+     widget.ts ajusta a altura da janela ao conteudo. */
   min-height: 100vh;
-  border-radius: 14px;
   padding: 12px;
   overflow: hidden;
+  /* Painel escuro (visível quando não há imagem de fundo). A opacidade controla
+     o alpha. Quando há fundo, o widget.ts aplica imagem + overlay numa única
+     camada de background-image. */
+  background-color: rgba(26, 25, 21, var(--wdg-alpha));
   background-size: cover;
   background-position: center;
   cursor: move;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .55);
   text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
   --wdg-alpha: .9;
-}
-/* Camada escura sobre o fundo: a opacidade do painel controla quanto a imagem
-   aparece (alpha alto = painel mais opaco, fundo menos visível). */
-.wdg::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(26, 25, 21, var(--wdg-alpha));
-  border-radius: inherit;
-  pointer-events: none;
 }
 .wdg-cards { position: relative; display: flex; flex-direction: column; gap: 8px; }
 /* Cards nao capturam o mouse: clicar em qualquer ponto arrasta a janela
@@ -203,8 +197,11 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .wprov-name { font-size: 14px; font-weight: 600; }
 .wprov-note { color: #c9c5bc; font-size: 12px; }
 .wprov-note.err { color: #e0816f; }
-.wwins { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.wwin { min-width: 0; }
+/* Flex (nao grid de 2 colunas fixas): com 1 ou 2 janelas, cada `.wwin` cresce
+   (flex:1) e preenche a largura do card — inclusive ao alargar o widget. Antes,
+   com so' uma janela, o grid de 2 colunas deixava o conteudo na metade esquerda. */
+.wwins { display: flex; gap: 8px; }
+.wwin { flex: 1; min-width: 0; }
 .wwin-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .wwin-label { font-size: 11px; color: #b3afa6; white-space: nowrap; }
 .wwin-pct { font-size: 17px; font-weight: 700; line-height: 1; }
@@ -213,4 +210,4 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .wwin-reset { font-size: 10.5px; color: #b3afa6; }
 .w-remain { color: #fff; font-weight: 600; }
 /* Largura estreita: empilha as duas janelas do card. */
-@media (max-width: 300px) { .wwins { grid-template-columns: 1fr; } }
+@media (max-width: 300px) { .wwins { flex-direction: column; } }

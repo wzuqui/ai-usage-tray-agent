@@ -1,0 +1,8 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fundo: quadrado arredondado escuro (tema do app) -->
+  <rect x="64" y="64" width="896" height="896" rx="210" fill="#1a1915"/>
+  <!-- Anel externo (semanal 7d) -->
+  <circle cx="512" cy="512" r="330" fill="none" stroke="#d97757" stroke-width="70"/>
+  <!-- Anel interno (sessao 5h) -->
+  <circle cx="512" cy="512" r="200" fill="none" stroke="#f0b49d" stroke-width="70"/>
+</svg>

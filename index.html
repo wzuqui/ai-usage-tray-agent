@@ -65,7 +65,11 @@
 
         <!-- ===== Configurações ===== -->
         <section id="view-settings" class="view">
-          <h1>Configurações</h1>
+          <div class="settings-head">
+            <h1>Configurações</h1>
+            <span id="settings-msg" class="msg"></span>
+            <button type="button" class="btn" id="settings-reload">Recarregar</button>
+          </div>
           <p class="sub">Salvas no <code>config.json</code> e aplicadas pelo app em ~1s, sem reiniciar.</p>
 
           <div class="panel">
@@ -254,12 +258,6 @@
                   <div class="desc">Inicia o app automaticamente no login.</div>
                 </div>
               </div>
-            </div>
-
-            <div class="settings-bar">
-              <span id="settings-msg" class="msg grow"></span>
-              <button type="button" class="btn" id="settings-reload">Recarregar</button>
-              <button type="button" class="btn save" id="settings-save" disabled>Salvar</button>
             </div>
           </div>
         </section>

@@ -149,7 +149,14 @@ async function applyBackground(fundo: string): Promise<void> {
   }
   try {
     const dataUrl = await invoke<string | null>("read_widget_background");
-    wdg.style.backgroundImage = dataUrl ? `url("${dataUrl}")` : "";
+    // Imagem + overlay escuro numa única camada de background: assim o recorte
+    // dos cantos (border-radius + overflow: hidden) acontece uma só vez e não
+    // sobra a borda clara que aparecia quando a imagem e o overlay estavam em
+    // camadas separadas. O alpha do overlay segue --wdg-alpha (atualiza sozinho
+    // quando a opacidade muda, sem reaplicar a imagem).
+    wdg.style.backgroundImage = dataUrl
+      ? `linear-gradient(rgba(26, 25, 21, var(--wdg-alpha)), rgba(26, 25, 21, var(--wdg-alpha))), url("${dataUrl}")`
+      : "";
   } catch {
     wdg.style.backgroundImage = "";
   }

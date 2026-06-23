@@ -162,11 +162,15 @@ function normJanelas(value: string | undefined): "ambos" | "sessao" | "semanal" 
 }
 
 /// Abre o seletor de arquivo nativo (no backend) e joga o caminho escolhido no
-/// campo de fundo. O valor só é persistido ao salvar.
+/// campo de fundo. Como o campo é alterado por código (não dispara "change"),
+/// agenda o auto-save explicitamente.
 async function pickBackground(): Promise<void> {
   try {
     const path = await invoke<string | null>("pick_widget_background");
-    if (path) $<HTMLInputElement>("set-wdgFundo").value = path;
+    if (path) {
+      $<HTMLInputElement>("set-wdgFundo").value = path;
+      scheduleAutoSave();
+    }
   } catch (e) {
     setMsg("Falha ao escolher arquivo: " + (e instanceof Error ? e.message : String(e)), "err");
   }
@@ -175,7 +179,7 @@ async function pickBackground(): Promise<void> {
 function setMsg(text: string, kind?: "ok" | "err"): void {
   const node = $("settings-msg");
   node.textContent = text;
-  node.className = "msg grow" + (kind ? " " + kind : "");
+  node.className = "msg" + (kind ? " " + kind : "");
 }
 
 export async function loadSettings(): Promise<void> {
@@ -185,24 +189,47 @@ export async function loadSettings(): Promise<void> {
     fillForm(data);
     $("settings-loading").hidden = true;
     $("settings-form").hidden = false;
-    $<HTMLButtonElement>("settings-save").disabled = false;
   } catch (e) {
     $("settings-loading").textContent = "Falha ao carregar configurações: " + (e instanceof Error ? e.message : String(e));
   }
 }
 
-async function saveSettings(): Promise<void> {
-  const btn = $<HTMLButtonElement>("settings-save");
-  btn.disabled = true;
-  setMsg("Salvando…");
+let saveTimer: number | undefined;
+// Cresce a cada agendamento; a resposta de um save só re-preenche o formulário
+// se nenhuma mudança nova ocorreu nesse meio-tempo (evita sobrescrever o que o
+// usuário acabou de alterar enquanto o save anterior estava em voo).
+let saveSeq = 0;
+
+/// Há um campo de texto/número em foco? Nesse caso o auto-save não deve
+/// re-preencher o formulário (sobrescreveria o que está sendo digitado). Para
+/// checkbox/select/range re-preencher é inofensivo (o valor já bate).
+function isEditingField(): boolean {
+  const a = document.activeElement as HTMLInputElement | null;
+  if (!a || a.tagName !== "INPUT") return false;
+  return a.type === "text" || a.type === "number" || a.type === "password";
+}
+
+/// Agenda um save com debounce: alterações em rajada (vários toggles, digitação)
+/// são unificadas num único envio. Substitui o antigo botão "Salvar".
+function scheduleAutoSave(): void {
+  saveSeq++;
+  if (saveTimer !== undefined) clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    saveTimer = undefined;
+    void autoSave();
+  }, 400);
+}
+
+async function autoSave(): Promise<void> {
+  const seq = saveSeq;
   try {
     const data = await invoke<SettingsData>("save_settings", { settings: collect() });
-    fillForm(data);
-    setMsg("Salvo. Aplicado em ~1s.", "ok");
+    // Só reflete a normalização (clamp de intervalo/fonte, validação de cor) se
+    // não houve mudança nova e nada está sendo digitado.
+    if (seq === saveSeq && !isEditingField()) fillForm(data);
+    setMsg("");
   } catch (e) {
     setMsg("Erro ao salvar: " + (e instanceof Error ? e.message : String(e)), "err");
-  } finally {
-    btn.disabled = false;
   }
 }
 
@@ -239,9 +266,14 @@ export function initSettings(): void {
   $("set-wdgFundoPick").addEventListener("click", () => void pickBackground());
   $("set-wdgFundoClear").addEventListener("click", () => {
     $<HTMLInputElement>("set-wdgFundo").value = "";
+    scheduleAutoSave();
   });
 
-  $("settings-save").addEventListener("click", () => void saveSettings());
+  // Auto-save: qualquer alteração nos controles (toggle, select, slider, ou ao
+  // sair de um campo de texto) persiste sozinha. O evento "change" borbulha, então
+  // um único listener no formulário cobre todos os campos. Setar valores por
+  // código (fillForm, picker de cor/fundo) não dispara "change", logo não há laço.
+  $("settings-form").addEventListener("change", () => scheduleAutoSave());
   $("settings-reload").addEventListener("click", () => void loadSettings());
 
   void loadSettings();
