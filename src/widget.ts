@@ -35,8 +35,9 @@ interface WidgetState {
 /// "sessao" → só 5h; "semanal" → só 7d; resto (inclusive "ambos") → as duas.
 function parseJanelas(value: string): { sessao: boolean; semanal: boolean } {
   const v = (value ?? "").trim().toLowerCase();
-  if (v === "sessao" || v === "sessão" || v === "5h") return { sessao: true, semanal: false };
-  if (v === "semanal" || v === "7d") return { sessao: false, semanal: true };
+  // Aceita os mesmos sinônimos do backend (parse_janelas em lib.rs).
+  if (v === "sessao" || v === "sessão" || v === "session" || v === "5h") return { sessao: true, semanal: false };
+  if (v === "semanal" || v === "semana" || v === "weekly" || v === "7d") return { sessao: false, semanal: true };
   return { sessao: true, semanal: true };
 }
 

@@ -3,6 +3,7 @@
 // fetch a um servidor HTTP local). A lógica de render é a mesma do painel
 // original (cards, heatmap, gráfico de modelos), só tipada em TypeScript.
 import { invoke } from "@tauri-apps/api/core";
+import { escapeHtml } from "./usage-format";
 
 interface ModelTotals {
   in: number;
@@ -64,10 +65,19 @@ let CHART_SERIES: ChartSeries[] = [];
 const el = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
 function friendly(model: string): string {
-  const m = model.match(/claude-(opus|sonnet|haiku)-(\d+)-(\d+)/);
-  if (!m) return model;
-  const fam = m[1][0].toUpperCase() + m[1].slice(1);
-  return fam + " " + m[2] + "." + m[3];
+  // Ids novos: claude-opus-4-8 → "Opus 4.8".
+  let m = model.match(/claude-(opus|sonnet|haiku)-(\d+)-(\d+)/);
+  if (m) {
+    const fam = m[1][0].toUpperCase() + m[1].slice(1);
+    return fam + " " + m[2] + "." + m[3];
+  }
+  // Ids antigos: claude-3-5-sonnet-… → "Sonnet 3.5".
+  m = model.match(/claude-(\d+)-(\d+)-(opus|sonnet|haiku)/);
+  if (m) {
+    const fam = m[3][0].toUpperCase() + m[3].slice(1);
+    return fam + " " + m[1] + "." + m[2];
+  }
+  return model;
 }
 function abbr(n: number): string {
   if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
@@ -141,7 +151,7 @@ function renderCards(days: DayStats[], sessions: SessionEntry[]): void {
     ["Sequência atual", st.current + "d"],
     ["Maior sequência", st.longest + "d"],
     ["Horário de pico", peak],
-    ["Modelo favorito", models[0]?.name ?? "–"],
+    ["Modelo favorito", escapeHtml(models[0]?.name ?? "–")],
   ];
   el("cards").innerHTML = cards
     .map(([l, v]) => '<div class="card"><div class="lbl">' + l + '</div><div class="val">' + v + "</div></div>")
@@ -273,7 +283,7 @@ function renderChart(days: DayStats[]): void {
     hl.setAttribute("visibility", "visible");
     tip.innerHTML = '<div class="th">' + dayLabel(s.date) + "</div>" +
       s.rows.map((r) => '<div class="tr"><span class="dot" style="background:' + r.color + '"></span>' +
-        r.name + "<b>" + abbr(r.val) + "</b></div>").join("");
+        escapeHtml(r.name) + "<b>" + abbr(r.val) + "</b></div>").join("");
     tip.classList.remove("hide");
     placeFixed(tip, e.clientX, e.clientY);
   });
@@ -282,7 +292,7 @@ function renderChart(days: DayStats[]): void {
   const grand = models.reduce((s, m) => s + m.total, 0) || 1;
   el("legend").innerHTML = models.map((m, i) =>
     '<div class="lrow"><div class="dot" style="background:' + PALETTE[i % PALETTE.length] + '"></div>' +
-    "<div>" + m.name + "</div>" +
+    "<div>" + escapeHtml(m.name) + "</div>" +
     '<div class="io">' + abbr(m.in) + " in · " + abbr(m.out) + " out</div>" +
     '<div class="pct">' + ((m.total / grand) * 100).toFixed(1) + "%</div></div>"
   ).join("");

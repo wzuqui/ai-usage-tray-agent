@@ -269,6 +269,9 @@ struct SharedState {
     snapshot: Mutex<RuntimeSnapshot>,
     cycle_lock: Mutex<()>,
     stop: AtomicBool,
+    /// Ha' um envio manual ("Enviar agora") em andamento. Evita empilhar uma
+    /// thread por clique enquanto um ciclo anterior ainda espera o `cycle_lock`.
+    manual_pending: AtomicBool,
 }
 
 /// Handles dos itens dinamicos do menu do tray, para atualiza-los no lugar
@@ -360,9 +363,10 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(
-            // Persiste so a POSICAO do widget; a altura e' auto-ajustada ao
-            // conteudo (nao faz sentido restaurar tamanho). A janela `main`
-            // fica de fora (negada) e continua centralizando sob demanda.
+            // Persiste POSICAO e SIZE do widget (o usuario pode redimensiona-lo;
+            // o widget.ts so' auto-ajusta a altura ate' o primeiro resize manual).
+            // A janela `main` fica de fora (negada) e continua centralizando sob
+            // demanda.
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&["main"])
                 .with_state_flags(
@@ -399,6 +403,7 @@ pub fn run() {
                 snapshot: Mutex::new(RuntimeSnapshot::default()),
                 cycle_lock: Mutex::new(()),
                 stop: AtomicBool::new(false),
+                manual_pending: AtomicBool::new(false),
             });
 
             app.manage(paths.clone());
@@ -566,17 +571,19 @@ fn get_usage(paths: State<'_, RuntimePaths>, shared: State<'_, Arc<SharedState>>
     usage_value(paths.inner(), shared.inner())
 }
 
-/// Forca uma coleta nova (igual ao "Enviar agora" do tray: tambem envia ao Loki)
-/// e devolve o uso ja' atualizado, para a tela mostrar o resultado assim que
-/// termina. Roda em `spawn_blocking` para nao travar a main thread: a coleta usa
-/// rede sincrona (ate' ~15s de timeout). O erro do ciclo, se houver, ja' fica
-/// refletido no proprio snapshot (status/erro por provider).
+/// Forca uma coleta nova ("Atualizar agora") e devolve o uso ja' atualizado, para
+/// a tela mostrar o resultado assim que termina. Roda em `spawn_blocking` para nao
+/// travar a main thread: a coleta usa rede sincrona (ate' ~15s de timeout). O erro
+/// do ciclo, se houver, ja' fica refletido no proprio snapshot (status/erro por
+/// provider). Respeita a pausa: com a coleta pausada, atualiza os dados/UI **sem**
+/// enviar ao Loki (o envio so' ocorre com a coleta ativa ou no "Enviar agora").
 #[tauri::command]
 async fn force_collect(app: AppHandle) -> Value {
     tauri::async_runtime::spawn_blocking(move || {
         let paths = app.state::<RuntimePaths>().inner().clone();
         let shared = app.state::<Arc<SharedState>>().inner().clone();
-        let _ = run_collection_cycle(&app, &paths, &shared);
+        let send = !shared.snapshot.lock().unwrap().paused;
+        let _ = run_collection_cycle(&app, &paths, &shared, send);
         usage_value(&paths, &shared)
     })
     .await
@@ -939,6 +946,12 @@ fn trigger_collection<R: Runtime>(app: &AppHandle<R>) {
     let paths = app.state::<RuntimePaths>().inner().clone();
     let shared = app.state::<Arc<SharedState>>().inner().clone();
 
+    // Coalesce cliques: se ja' ha' um envio manual em andamento, ignora os
+    // seguintes (senao cada clique empilharia uma thread bloqueada no cycle_lock).
+    if shared.manual_pending.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
     let _ = append_log_line(
         &paths,
         "info",
@@ -947,7 +960,9 @@ fn trigger_collection<R: Runtime>(app: &AppHandle<R>) {
     );
 
     thread::spawn(move || {
-        let _ = run_collection_cycle(&app_handle, &paths, &shared);
+        // "Enviar agora" sempre envia ao Loki, mesmo com a coleta pausada.
+        let _ = run_collection_cycle(&app_handle, &paths, &shared, true);
+        shared.manual_pending.store(false, Ordering::SeqCst);
     });
 }
 
@@ -965,7 +980,7 @@ fn start_worker<R: Runtime + 'static>(
 
         let paused = shared.snapshot.lock().unwrap().paused;
         if !paused {
-            let _ = run_collection_cycle(&app, &paths, &shared);
+            let _ = run_collection_cycle(&app, &paths, &shared, true);
         } else {
             let _ = refresh_tray(&app, &shared);
         }
@@ -1037,10 +1052,14 @@ fn http_client() -> Client {
         .clone()
 }
 
+/// Coleta as metricas dos providers habilitados e, quando `send` e' `true`, envia
+/// cada uma ao Loki. Com `send = false` (ex.: "Atualizar agora" com a coleta
+/// pausada) so' atualiza o snapshot/UI, sem trafego ao Loki.
 fn run_collection_cycle<R: Runtime>(
     app: &AppHandle<R>,
     paths: &RuntimePaths,
     shared: &Arc<SharedState>,
+    send: bool,
 ) -> Result<(), String> {
     let _lock = shared.cycle_lock.lock().unwrap();
     let config = load_or_create_config(paths).map_err(|error| error.to_string())?;
@@ -1052,33 +1071,38 @@ fn run_collection_cycle<R: Runtime>(
         match collect_codex_metric(&client, &config) {
             Ok(metric) => {
                 update_metric(shared, metric.clone());
-                if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
-                    had_error = true;
-                    let _ = append_log_line(
-                        paths,
-                        "error",
-                        "Falha ao enviar metrica para o Loki.",
-                        Some(json!({
-                            "ferramenta": "codex",
-                            "error": error
-                        })),
-                    );
-                    handle_runtime_error(app, &error);
-                } else {
-                    let _ = append_log_line(
-                        paths,
-                        "info",
-                        "Metrica enviada para o Loki.",
-                        Some(json!({
-                            "ferramenta": "codex",
-                            "uso_percentual": metric.uso_percentual,
-                            "uso_percentual_7d": metric.uso_percentual_7d,
-                            "status": metric.status,
-                            "reset_em": metric.reset_em,
-                            "reset_em_7d": metric.reset_em_7d
-                        })),
-                    );
-                    mark_success(shared);
+                // Com a coleta pausada, "Atualizar agora" so' atualiza os dados/UI;
+                // o envio ao Loki ocorre apenas com a coleta ativa ou no "Enviar
+                // agora" do tray.
+                if send {
+                    if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
+                        had_error = true;
+                        let _ = append_log_line(
+                            paths,
+                            "error",
+                            "Falha ao enviar metrica para o Loki.",
+                            Some(json!({
+                                "ferramenta": "codex",
+                                "error": error
+                            })),
+                        );
+                        handle_runtime_error(app, &error);
+                    } else {
+                        let _ = append_log_line(
+                            paths,
+                            "info",
+                            "Metrica enviada para o Loki.",
+                            Some(json!({
+                                "ferramenta": "codex",
+                                "uso_percentual": metric.uso_percentual,
+                                "uso_percentual_7d": metric.uso_percentual_7d,
+                                "status": metric.status,
+                                "reset_em": metric.reset_em,
+                                "reset_em_7d": metric.reset_em_7d
+                            })),
+                        );
+                        mark_success(shared);
+                    }
                 }
             }
             Err(error) => {
@@ -1103,33 +1127,38 @@ fn run_collection_cycle<R: Runtime>(
         match collect_claude_metric(&client, &config) {
             Ok(metric) => {
                 update_metric(shared, metric.clone());
-                if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
-                    had_error = true;
-                    let _ = append_log_line(
-                        paths,
-                        "error",
-                        "Falha ao enviar metrica para o Loki.",
-                        Some(json!({
-                            "ferramenta": "claude",
-                            "error": error
-                        })),
-                    );
-                    handle_runtime_error(app, &error);
-                } else {
-                    let _ = append_log_line(
-                        paths,
-                        "info",
-                        "Metrica enviada para o Loki.",
-                        Some(json!({
-                            "ferramenta": "claude",
-                            "uso_percentual": metric.uso_percentual,
-                            "uso_percentual_7d": metric.uso_percentual_7d,
-                            "status": metric.status,
-                            "reset_em": metric.reset_em,
-                            "reset_em_7d": metric.reset_em_7d
-                        })),
-                    );
-                    mark_success(shared);
+                // Com a coleta pausada, "Atualizar agora" so' atualiza os dados/UI;
+                // o envio ao Loki ocorre apenas com a coleta ativa ou no "Enviar
+                // agora" do tray.
+                if send {
+                    if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
+                        had_error = true;
+                        let _ = append_log_line(
+                            paths,
+                            "error",
+                            "Falha ao enviar metrica para o Loki.",
+                            Some(json!({
+                                "ferramenta": "claude",
+                                "error": error
+                            })),
+                        );
+                        handle_runtime_error(app, &error);
+                    } else {
+                        let _ = append_log_line(
+                            paths,
+                            "info",
+                            "Metrica enviada para o Loki.",
+                            Some(json!({
+                                "ferramenta": "claude",
+                                "uso_percentual": metric.uso_percentual,
+                                "uso_percentual_7d": metric.uso_percentual_7d,
+                                "status": metric.status,
+                                "reset_em": metric.reset_em,
+                                "reset_em_7d": metric.reset_em_7d
+                            })),
+                        );
+                        mark_success(shared);
+                    }
                 }
             }
             Err(error) => {
@@ -1233,13 +1262,13 @@ fn collect_codex_metric(client: &Client, config: &AppConfig) -> Result<UsageMetr
         usuario: normalized_user(&config.usuario),
         ferramenta: "codex".to_string(),
         uso_percentual: round_percent(used_percent),
-        restante_percentual: round_percent(100.0 - used_percent),
+        restante_percentual: remaining_percent(used_percent),
         status: "ok".to_string(),
         coletado_em: Utc::now().to_rfc3339(),
         reset_em: primary_window.reset_at.and_then(timestamp_seconds_to_iso),
         erro: None,
         uso_percentual_7d: secondary_used_percent.map(round_percent),
-        restante_percentual_7d: secondary_used_percent.map(|value| round_percent(100.0 - value)),
+        restante_percentual_7d: secondary_used_percent.map(remaining_percent),
         reset_em_7d: secondary_reset_at.and_then(timestamp_seconds_to_iso),
     })
 }
@@ -1301,13 +1330,13 @@ fn collect_claude_metric(client: &Client, config: &AppConfig) -> Result<UsageMet
         usuario: normalized_user(&config.usuario),
         ferramenta: "claude".to_string(),
         uso_percentual: round_percent(utilization),
-        restante_percentual: round_percent(100.0 - utilization),
+        restante_percentual: remaining_percent(utilization),
         status: "ok".to_string(),
         coletado_em: Utc::now().to_rfc3339(),
         reset_em: five_hour.resets_at,
         erro: None,
         uso_percentual_7d: seven_day_utilization.map(round_percent),
-        restante_percentual_7d: seven_day_utilization.map(|value| round_percent(100.0 - value)),
+        restante_percentual_7d: seven_day_utilization.map(remaining_percent),
         reset_em_7d: seven_day_resets_at,
     })
 }
@@ -1378,49 +1407,67 @@ fn send_metric_to_loki(client: &Client, config: &AppConfig, metric: &UsageMetric
 
 fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> tauri::Result<()> {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let snapshot = shared.snapshot.lock().unwrap().clone();
-        let tooltip = format!(
-            "AiUsageTrayAgent\nCodex: {}\nClaude: {}",
-            metric_text(snapshot.codex_metric.as_ref()),
-            metric_text(snapshot.claude_metric.as_ref())
-        );
+        // Le' a config uma unica vez por refresh (em vez de recarregar para o
+        // tooltip, a barra de tarefas e o widget separadamente).
+        let config = app
+            .try_state::<RuntimePaths>()
+            .and_then(|paths| load_or_create_config(paths.inner()).ok());
+
+        // Metrica de provider desabilitado nao deve sobreviver no snapshot: senao
+        // o tooltip/menu do tray exibiriam um valor obsoleto depois de desligar o
+        // provider. O snapshot e' a fonte unica (tambem lida por "Uso atual" e pelo
+        // widget, que ja' tratam o estado "desabilitado").
+        let snapshot = {
+            let mut guard = shared.snapshot.lock().unwrap();
+            if let Some(config) = &config {
+                if !config.providers.codex.habilitado {
+                    guard.codex_metric = None;
+                }
+                if !config.providers.claude.habilitado {
+                    guard.claude_metric = None;
+                }
+            }
+            guard.clone()
+        };
 
         #[cfg(target_os = "windows")]
         {
-            tray.set_tooltip(Some(tooltip))?;
+            tray.set_tooltip(Some(format!(
+                "AiUsageTrayAgent\nCodex: {}\nClaude: {}",
+                metric_text(snapshot.codex_metric.as_ref()),
+                metric_text(snapshot.claude_metric.as_ref())
+            )))?;
             taskbar_widget::set_paused(snapshot.paused);
-            if let Some(paths) = app.try_state::<RuntimePaths>() {
-                if let Ok(config) = load_or_create_config(paths.inner()) {
-                    taskbar_widget::set_offset(config.barra_tarefas.deslocamento);
-                    taskbar_widget::set_side(config.barra_tarefas.lado_esquerdo());
-                    taskbar_widget::set_font_size(config.barra_tarefas.tamanho_fonte_pt());
-                    taskbar_widget::set_font_color(config.barra_tarefas.cor_fonte_rgb());
-                    let mostrar_hora = config.barra_tarefas.mostrar_hora_reset();
-                    let (mostra_sessao, mostra_semanal) =
-                        parse_janelas(&config.barra_tarefas.janelas);
-                    taskbar_widget::set_provider(
-                        "codex",
-                        config.providers.codex.habilitado
-                            && config.providers.codex.mostra_na_taskbar_windows,
-                        widget_detail(
-                            snapshot.codex_metric.as_ref(),
-                            mostrar_hora,
-                            mostra_sessao,
-                            mostra_semanal,
-                        ),
-                    );
-                    taskbar_widget::set_provider(
-                        "claude",
-                        config.providers.claude.habilitado
-                            && config.providers.claude.mostra_na_taskbar_windows,
-                        widget_detail(
-                            snapshot.claude_metric.as_ref(),
-                            mostrar_hora,
-                            mostra_sessao,
-                            mostra_semanal,
-                        ),
-                    );
-                }
+            if let Some(config) = &config {
+                taskbar_widget::set_offset(config.barra_tarefas.deslocamento);
+                taskbar_widget::set_side(config.barra_tarefas.lado_esquerdo());
+                taskbar_widget::set_font_size(config.barra_tarefas.tamanho_fonte_pt());
+                taskbar_widget::set_font_color(config.barra_tarefas.cor_fonte_rgb());
+                let mostrar_hora = config.barra_tarefas.mostrar_hora_reset();
+                let (mostra_sessao, mostra_semanal) =
+                    parse_janelas(&config.barra_tarefas.janelas);
+                taskbar_widget::set_provider(
+                    "codex",
+                    config.providers.codex.habilitado
+                        && config.providers.codex.mostra_na_taskbar_windows,
+                    widget_detail(
+                        snapshot.codex_metric.as_ref(),
+                        mostrar_hora,
+                        mostra_sessao,
+                        mostra_semanal,
+                    ),
+                );
+                taskbar_widget::set_provider(
+                    "claude",
+                    config.providers.claude.habilitado
+                        && config.providers.claude.mostra_na_taskbar_windows,
+                    widget_detail(
+                        snapshot.claude_metric.as_ref(),
+                        mostrar_hora,
+                        mostra_sessao,
+                        mostra_semanal,
+                    ),
+                );
             }
         }
 
@@ -1432,12 +1479,10 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
         )))?;
 
         // Aplica a config do widget (criar/destruir/sempre-na-frente) em
-        // Windows/Linux. Le' o config a cada ciclo, como a barra de tarefas.
+        // Windows/Linux, reusando o config ja' lido acima.
         #[cfg(not(target_os = "macos"))]
-        if let Some(paths) = app.try_state::<RuntimePaths>() {
-            if let Ok(config) = load_or_create_config(paths.inner()) {
-                apply_widget(app, &config);
-            }
+        if let Some(config) = &config {
+            apply_widget(app, config);
         }
 
         update_tray_menu(app, &snapshot);
@@ -1651,6 +1696,12 @@ fn timestamp_seconds_to_iso(value: i64) -> Option<String> {
 
 fn round_percent(value: f64) -> f64 {
     (value * 10.0).round() / 10.0
+}
+
+/// Percentual restante (100 - usado), arredondado e limitado a 0..=100 — evita
+/// exibir valores negativos caso a API devolva uso acima de 100%.
+fn remaining_percent(used: f64) -> f64 {
+    round_percent((100.0 - used).clamp(0.0, 100.0))
 }
 
 fn ensure_storage() -> Result<RuntimePaths, Box<dyn std::error::Error>> {

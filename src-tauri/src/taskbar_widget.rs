@@ -67,11 +67,15 @@ static FONT_POINT: AtomicI32 = AtomicI32::new(FONT_POINT_DEFAULT);
 /// Cor da fonte como COLORREF (0x00BBGGRR) ou -1 = automatico (preto/branco
 /// conforme a cor real da barra). Configuravel via `barraTarefas.corFonte`.
 static FONT_COLOR: AtomicI32 = AtomicI32::new(-1);
+/// Aliases dos callbacks boxados (evitam repetir o `dyn Fn` e satisfazem o
+/// clippy::type_complexity).
+type ActivateCallback = Box<dyn Fn() + Send + Sync>;
+type MenuCommandCallback = Box<dyn Fn(&str) + Send + Sync>;
 /// Callback acionado quando o usuario clica num widget (abrir a janela do app).
-static ON_ACTIVATE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+static ON_ACTIVATE: OnceLock<ActivateCallback> = OnceLock::new();
 /// Callback acionado quando um item do menu de contexto (clique direito) e'
 /// escolhido. Recebe o id do item (mesmos ids do menu do tray).
-static ON_MENU_COMMAND: OnceLock<Box<dyn Fn(&str) + Send + Sync>> = OnceLock::new();
+static ON_MENU_COMMAND: OnceLock<MenuCommandCallback> = OnceLock::new();
 /// Estado de pausa atual, para rotular o item "Pausar/Retomar coleta" no menu.
 static PAUSED: AtomicBool = AtomicBool::new(false);
 
@@ -112,6 +116,14 @@ fn state() -> &'static Mutex<Vec<ProviderState>> {
                 .collect(),
         )
     })
+}
+
+/// Trava o estado recuperando de um eventual envenenamento do Mutex (panic
+/// anterior com o lock seguro). Critico nos callbacks `extern "system"` (wnd_proc/
+/// paint): um `unwrap()` que desse panic ali estaria fazendo unwind atraves da
+/// fronteira FFI (comportamento indefinido). Recuperar o guard evita o panic.
+fn lock_state() -> std::sync::MutexGuard<'static, Vec<ProviderState>> {
+    state().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 thread_local! {
@@ -207,7 +219,7 @@ fn font_color_override() -> Option<COLORREF> {
 /// tick do timer); aqui apenas guardamos o estado e avisamos para repintar.
 pub fn set_provider(key: &str, enabled: bool, detail: String) {
     let hwnd = {
-        let mut slots = state().lock().unwrap();
+        let mut slots = lock_state();
         match slots.iter_mut().find(|slot| slot.key == key) {
             Some(slot) => {
                 slot.enabled = enabled;
@@ -292,7 +304,7 @@ unsafe fn maintain() {
     // Explorer reiniciou? As janelas filhas morreram junto com a barra antiga.
     let previous = TASKBAR_HWND.swap(taskbar.0 as isize, Ordering::SeqCst);
     if previous != taskbar.0 as isize {
-        let mut slots = state().lock().unwrap();
+        let mut slots = lock_state();
         for slot in slots.iter_mut() {
             slot.hwnd = 0;
         }
@@ -300,7 +312,7 @@ unsafe fn maintain() {
 
     // Snapshot do estado para nao chamar Win32 segurando o lock.
     let snapshot: Vec<(usize, bool, isize)> = {
-        let slots = state().lock().unwrap();
+        let slots = lock_state();
         slots
             .iter()
             .enumerate()
@@ -324,7 +336,7 @@ unsafe fn maintain() {
         }
     }
     if !updates.is_empty() {
-        let mut slots = state().lock().unwrap();
+        let mut slots = lock_state();
         for (index, hwnd) in updates {
             slots[index].hwnd = hwnd;
         }
@@ -438,7 +450,7 @@ unsafe fn position_widgets(taskbar: HWND) {
 
     // Lista de widgets habilitados, na ordem da esquerda para a direita.
     let layout: Vec<(usize, isize, String)> = {
-        let slots = state().lock().unwrap();
+        let slots = lock_state();
         slots
             .iter()
             .enumerate()
@@ -797,7 +809,7 @@ unsafe fn paint(hwnd: HWND) {
     if width > 0 && height > 0 {
         let index = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as usize;
         let (label, detail) = {
-            let slots = state().lock().unwrap();
+            let slots = lock_state();
             match slots.get(index) {
                 Some(slot) => (slot.label.to_string(), slot.detail.clone()),
                 None => (String::new(), String::new()),
@@ -1025,11 +1037,10 @@ unsafe extern "system" fn wnd_proc(
         }
         WM_DESTROY => {
             let index = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as usize;
-            if let Ok(mut slots) = state().lock() {
-                if let Some(slot) = slots.get_mut(index) {
-                    if slot.hwnd == hwnd.0 as isize {
-                        slot.hwnd = 0;
-                    }
+            let mut slots = lock_state();
+            if let Some(slot) = slots.get_mut(index) {
+                if slot.hwnd == hwnd.0 as isize {
+                    slot.hwnd = 0;
                 }
             }
             LRESULT(0)

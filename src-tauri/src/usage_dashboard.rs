@@ -104,7 +104,7 @@ fn parse_transcript(text: &str) -> FileAgg {
                 continue;
             }
             // respostas de tool chegam como "user" com content [{type:'tool_result'}] — não são mensagens humanas
-            let is_tool_result = content.map_or(false, |items| {
+            let is_tool_result = content.is_some_and(|items| {
                 items
                     .iter()
                     .any(|c| c.get("type").and_then(Value::as_str) == Some("tool_result"))
@@ -249,7 +249,7 @@ fn collect_stats() -> Value {
             let size = meta.len();
             let fresh = cache
                 .get(file)
-                .map_or(false, |entry| entry.mtime == mtime && entry.size == size);
+                .is_some_and(|entry| entry.mtime == mtime && entry.size == size);
             if fresh {
                 continue;
             }
