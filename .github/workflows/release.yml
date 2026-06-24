@@ -180,3 +180,13 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A tag rolante main-latest e' criada uma vez e o softprops nao a move em
+      # builds seguintes (target_commitish so' vale na criacao). Como os "Source
+      # code (zip/tar.gz)" e a data da release saem do commit da tag, eles ficam
+      # congelados. Move a ref da tag para o commit atual para que acompanhem a
+      # build. Nao dispara o workflow (ele roda em push de branch, nao de tag).
+      - name: Move a tag rolante para o commit atual
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/main-latest" -f sha="$GITHUB_SHA" -F force=true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
