@@ -19,6 +19,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -26,5 +27,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENBRUJBMkUxMjMwQjYwNjIKUldSaVlBc2o0YUxyeXROMUVYSVdFL1JFanRST1hrSnZlRGFCZ1ozZ2l1ZTFOU2d6T0ttREp5aTgK",
+      "endpoints": [
+        "https://github.com/wzuqui/ai-usage-tray-agent/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

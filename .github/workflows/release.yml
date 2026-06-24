@@ -10,6 +10,10 @@ permissions:
 
 jobs:
   build:
+    # Publica releases oficiais apenas no repositorio upstream. Pushes no main de
+    # forks nao disparam build/assinatura (evita falha por secret ausente e
+    # releases orfas que ninguem busca via OTA).
+    if: github.repository == 'wzuqui/ai-usage-tray-agent'
     strategy:
       fail-fast: false
       matrix:
@@ -17,10 +21,12 @@ jobs:
           - os: windows-latest
             tauri_config: src-tauri/tauri.windows.conf.json
             artifact_glob: src-tauri/target/release/bundle/msi/*.msi
+            sig_glob: src-tauri/target/release/bundle/msi/*.msi.sig
             artifact_name: dist-windows-latest
           - os: ubuntu-22.04
             tauri_config: src-tauri/tauri.linux.conf.json
             artifact_glob: src-tauri/target/release/bundle/appimage/*.AppImage
+            sig_glob: src-tauri/target/release/bundle/appimage/*.AppImage.sig
             artifact_name: dist-ubuntu-22.04
 
     runs-on: ${{ matrix.os }}
@@ -52,18 +58,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # O updater compara semver; a versao precisa incrementar a cada build. Usa
+      # o numero da execucao como patch (monotonico no upstream). As duas
+      # plataformas leem o mesmo run_number -> mesma versao.
+      - name: Set version (0.2.<run_number>)
+        shell: bash
+        run: |
+          version="0.2.${{ github.run_number }}"
+          tmp=$(mktemp)
+          jq --arg v "$version" '.version = $v' src-tauri/tauri.conf.json > "$tmp"
+          mv "$tmp" src-tauri/tauri.conf.json
+          echo "Versao do build: $version"
+
       - name: Build distributable
         run: npx tauri build --config ${{ matrix.tauri_config }}
+        env:
+          # Assinatura dos artefatos do updater. Sem estas variaveis o build falha
+          # (createUpdaterArtifacts: true). Cadastradas como secrets no upstream.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p dist-release
+          # Instalador (download manual) e a assinatura .sig (consumida pelo OTA).
           cp ${{ matrix.artifact_glob }} dist-release/
-          # Executavel portatil (sem instalar) no Windows.
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp src-tauri/target/release/ai-usage-tray-agent.exe dist-release/AiUsageTrayAgent-portable.exe
-          fi
+          cp ${{ matrix.sig_glob }} dist-release/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -74,6 +95,7 @@ jobs:
 
   release:
     needs: build
+    if: github.repository == 'wzuqui/ai-usage-tray-agent'
     runs-on: ubuntu-latest
 
     steps:
@@ -82,6 +104,42 @@ jobs:
         with:
           path: dist-release
           merge-multiple: true
+
+      # Monta o manifesto que o updater consulta. Descobre os nomes reais dos
+      # artefatos e le o conteudo dos .sig; monta as URLs a partir dos basenames
+      # (sem hardcode de nome/arch). Inclui so' as plataformas presentes.
+      - name: Generate updater manifest (latest.json)
+        shell: bash
+        run: |
+          cd dist-release
+          version="0.2.${{ github.run_number }}"
+          base="https://github.com/wzuqui/ai-usage-tray-agent/releases/download/main-latest"
+          pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          notes="Build automatica do main (${{ github.sha }})."
+          platforms='{}'
+
+          msi=$(ls *.msi 2>/dev/null | head -n1 || true)
+          msi_sig=$(ls *.msi.sig 2>/dev/null | head -n1 || true)
+          if [ -n "$msi" ] && [ -n "$msi_sig" ]; then
+            platforms=$(echo "$platforms" | jq \
+              --arg s "$(cat "$msi_sig")" --arg u "$base/$msi" \
+              '. + {"windows-x86_64": {signature: $s, url: $u}}')
+          fi
+
+          appimage=$(ls *.AppImage 2>/dev/null | head -n1 || true)
+          appimage_sig=$(ls *.AppImage.sig 2>/dev/null | head -n1 || true)
+          if [ -n "$appimage" ] && [ -n "$appimage_sig" ]; then
+            platforms=$(echo "$platforms" | jq \
+              --arg s "$(cat "$appimage_sig")" --arg u "$base/$appimage" \
+              '. + {"linux-x86_64": {signature: $s, url: $u}}')
+          fi
+
+          jq -n --arg v "$version" --arg d "$pub_date" --arg n "$notes" \
+            --argjson p "$platforms" \
+            '{version: $v, pub_date: $d, notes: $n, platforms: $p}' > latest.json
+
+          echo "latest.json gerado:"
+          cat latest.json
 
       - name: Publish rolling release
         uses: softprops/action-gh-release@v2
@@ -96,7 +154,8 @@ jobs:
           files: |
             dist-release/*.msi
             dist-release/*.AppImage
-            dist-release/*.exe
+            dist-release/*.sig
+            dist-release/latest.json
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

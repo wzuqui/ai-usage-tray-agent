@@ -413,6 +413,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             // Persiste POSICAO e SIZE do widget (o usuario pode redimensiona-lo;
             // o widget.ts so' auto-ajusta a altura ate' o primeiro resize manual).
@@ -519,6 +520,11 @@ pub fn run() {
 
             refresh_tray(app.handle(), &shared)?;
             start_worker(app.handle().clone(), paths.clone(), shared.clone());
+
+            // Checagem de atualizacao no boot, em segundo plano. Silenciosa quando
+            // nao ha update; se houver, pergunta antes de baixar/instalar.
+            let update_handle = app.handle().clone();
+            tauri::async_runtime::spawn(check_for_updates(update_handle, false));
 
             Ok(())
         })
@@ -1139,6 +1145,8 @@ fn build_tray_menu<R: Runtime>(
     let send_now_item = MenuItem::with_id(app, "send_now", "Enviar agora", true, None::<&str>)?;
     let toggle_pause_item =
         MenuItem::with_id(app, "toggle_pause", pause_label, true, None::<&str>)?;
+    let check_updates_item =
+        MenuItem::with_id(app, "check_updates", "Buscar atualizações", true, None::<&str>)?;
 
     let quit_item = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
 
@@ -1155,6 +1163,7 @@ fn build_tray_menu<R: Runtime>(
         &open_logs_item,
         &send_now_item,
         &toggle_pause_item,
+        &check_updates_item,
         &separator_actions,
         &quit_item,
     ];
@@ -1245,6 +1254,10 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
         }
         "send_now" => {
             trigger_collection(app);
+        }
+        "check_updates" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(check_for_updates(app, true));
         }
         "toggle_pause" => {
             if let (Some(shared), Some(paths)) = (
@@ -1882,6 +1895,87 @@ fn handle_runtime_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
 
     if let Some(shared) = app.try_state::<Arc<SharedState>>() {
         let _ = refresh_tray(app, &shared);
+    }
+}
+
+/// Verifica se ha uma versao mais nova publicada (endpoint do updater no
+/// `tauri.conf.json`) e, havendo, pergunta ao usuario antes de baixar/instalar.
+///
+/// Roda em uma tarefa async (fora da main thread), entao os dialogos usam
+/// `blocking_show`. `manual = true` quando acionada pelo item "Buscar
+/// atualizacoes" do tray: nesse caso tambem avisa quando nao ha update ou quando
+/// a verificacao falha. No boot (`manual = false`) so' interage se houver update.
+async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    use tauri_plugin_updater::UpdaterExt;
+
+    let log_error = |app: &AppHandle<R>, message: &str| {
+        if let Some(paths) = app.try_state::<RuntimePaths>() {
+            let _ = append_log_line(paths.inner(), "error", message, None);
+        }
+    };
+    let notify = |app: &AppHandle<R>, message: String| {
+        app.dialog()
+            .message(message)
+            .title("Atualização")
+            .buttons(MessageDialogButtons::Ok)
+            .blocking_show();
+    };
+
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(error) => {
+            log_error(&app, &format!("Updater indisponível: {error}"));
+            if manual {
+                notify(&app, "Não foi possível verificar atualizações.".to_string());
+            }
+            return;
+        }
+    };
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            let version = update.version.clone();
+            let proceed = app
+                .dialog()
+                .message(format!(
+                    "Nova versão {version} disponível. Deseja baixar e instalar agora?\nO app será reiniciado ao concluir."
+                ))
+                .title("Atualização disponível")
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Atualizar".to_string(),
+                    "Agora não".to_string(),
+                ))
+                .blocking_show();
+
+            if !proceed {
+                return;
+            }
+
+            match update.download_and_install(|_, _| {}, || {}).await {
+                Ok(_) => {
+                    app.restart();
+                }
+                Err(error) => {
+                    log_error(&app, &format!("Falha ao instalar atualização: {error}"));
+                    notify(&app, format!("Falha ao instalar a atualização: {error}"));
+                }
+            }
+        }
+        Ok(None) => {
+            if manual {
+                notify(&app, "Você já está na versão mais recente.".to_string());
+            }
+        }
+        Err(error) => {
+            log_error(&app, &format!("Falha ao verificar atualização: {error}"));
+            if manual {
+                notify(
+                    &app,
+                    format!("Não foi possível verificar atualizações: {error}"),
+                );
+            }
+        }
     }
 }
 
