@@ -170,10 +170,12 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+          # Os .sig NAO sao publicados: a assinatura ja vai embutida no
+          # latest.json (campo `signature`), que e' o que o updater le. Os .sig
+          # so' servem como artefato intermediario no CI para montar o manifesto.
           files: |
             dist-release/*.msi
             dist-release/*.AppImage
-            dist-release/*.sig
             dist-release/latest.json
           fail_on_unmatched_files: true
         env:
