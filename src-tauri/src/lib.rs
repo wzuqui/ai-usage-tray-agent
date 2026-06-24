@@ -323,6 +323,30 @@ struct SharedState {
     /// Ha' um envio manual ("Enviar agora") em andamento. Evita empilhar uma
     /// thread por clique enquanto um ciclo anterior ainda espera o `cycle_lock`.
     manual_pending: AtomicBool,
+    /// Ha' uma coleta forcada ("Atualizar agora") em andamento. Coalesce cliques
+    /// repetidos para nao empilhar varios ciclos no `cycle_lock`.
+    force_pending: AtomicBool,
+}
+
+/// Trava o snapshot recuperando de um eventual envenenamento do Mutex (panic
+/// anterior segurando o lock). Evita que um unico panic derrube todas as
+/// atualizacoes seguintes — mesma estrategia que o `taskbar_widget` ja' adota.
+fn lock_snapshot(shared: &SharedState) -> std::sync::MutexGuard<'_, RuntimeSnapshot> {
+    shared
+        .snapshot
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Reseta um flag atomico de "em andamento" ao sair do escopo, inclusive em
+/// panic. Garante que `manual_pending`/`force_pending` nunca fiquem presos em
+/// `true` (o que bloquearia novos cliques de "Enviar agora"/"Atualizar agora").
+struct FlagGuard<'a>(&'a AtomicBool);
+
+impl Drop for FlagGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Handles dos itens dinamicos do menu do tray, para atualiza-los no lugar
@@ -472,6 +496,7 @@ pub fn run() {
                 cycle_lock: Mutex::new(()),
                 stop: AtomicBool::new(false),
                 manual_pending: AtomicBool::new(false),
+                force_pending: AtomicBool::new(false),
             });
 
             app.manage(paths.clone());
@@ -562,7 +587,7 @@ struct SaveSettings {
 /// Estado exposto ao painel de configuracoes: o config.json (normalizado), a
 /// preferencia de autostart, o SO e o rotulo do autostart (para a UI).
 fn settings_value<R: Runtime>(app: &AppHandle<R>, paths: &RuntimePaths) -> Value {
-    let config = load_or_create_config(paths).unwrap_or_default();
+    let config = read_config(paths);
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
 
     let mut value = json!({
@@ -617,9 +642,8 @@ fn save_settings(
     // "Envio de dados", nao pelas Configuracoes. O painel de Configuracoes nao
     // envia esse campo, entao ele chegaria aqui com os defaults e sobrescreveria a
     // escolha do usuario. Preserva o que ja' esta' em disco.
-    if let Ok(existing) = load_or_create_config(paths.inner()) {
-        config.envio = existing.envio;
-    }
+    config.envio = read_config(paths.inner()).envio;
+    normalize_config(&mut config);
 
     write_config(paths.inner(), &config)
         .map_err(|error| format!("falha ao salvar config.json: {error}"))?;
@@ -632,8 +656,8 @@ fn save_settings(
 /// habilitado e se a coleta esta' pausada. Nao faz rede: le' apenas o snapshot
 /// ja' coletado pelo worker.
 fn usage_value(paths: &RuntimePaths, shared: &Arc<SharedState>) -> Value {
-    let snapshot = shared.snapshot.lock().unwrap().clone();
-    let config = load_or_create_config(paths).unwrap_or_default();
+    let snapshot = lock_snapshot(shared).clone();
+    let config = read_config(paths);
     json!({
         "paused": snapshot.paused,
         "lastError": snapshot.last_error,
@@ -667,6 +691,12 @@ async fn force_collect(app: AppHandle) -> Value {
     tauri::async_runtime::spawn_blocking(move || {
         let paths = app.state::<RuntimePaths>().inner().clone();
         let shared = app.state::<Arc<SharedState>>().inner().clone();
+        // Coalesce: se ja' ha' uma coleta forcada em andamento, devolve o snapshot
+        // atual sem empilhar outro ciclo no cycle_lock.
+        if shared.force_pending.swap(true, Ordering::SeqCst) {
+            return usage_value(&paths, &shared);
+        }
+        let _guard = FlagGuard(&shared.force_pending);
         // "Atualizar agora" forca uma coleta nova respeitando as regras de envio
         // (pausa + config.envio); nao e' um envio manual forcado.
         let _ = run_collection_cycle(&app, &paths, &shared, false);
@@ -685,7 +715,7 @@ async fn force_collect(app: AppHandle) -> Value {
 async fn get_codex_stats(app: AppHandle, days: u32) -> Value {
     tauri::async_runtime::spawn_blocking(move || {
         let paths = app.state::<RuntimePaths>().inner().clone();
-        let config = load_or_create_config(&paths).unwrap_or_default();
+        let config = read_config(&paths);
         let client = http_client();
         codex_dashboard::collect(&client, &config.providers.codex.auth_json_path, days)
     })
@@ -699,7 +729,7 @@ async fn get_codex_stats(app: AppHandle, days: u32) -> Value {
 /// envios. Sem rede: le' o snapshot ja' coletado e o config.json.
 fn envio_value(paths: &RuntimePaths, shared: &Arc<SharedState>) -> Value {
     let (paused, last_success, log) = {
-        let snapshot = shared.snapshot.lock().unwrap();
+        let snapshot = lock_snapshot(shared);
         let log: Vec<&SendLogEntry> = snapshot.send_log.iter().rev().collect();
         (
             snapshot.paused,
@@ -707,7 +737,7 @@ fn envio_value(paths: &RuntimePaths, shared: &Arc<SharedState>) -> Value {
             serde_json::to_value(&log).unwrap_or(Value::Null),
         )
     };
-    let config = load_or_create_config(paths).unwrap_or_default();
+    let config = read_config(paths);
     json!({
         "paused": paused,
         "intervaloSegundos": config.intervalo_segundos,
@@ -758,8 +788,7 @@ fn set_envio_provider(
     ferramenta: String,
     enviar: bool,
 ) -> Result<Value, String> {
-    let mut config =
-        load_or_create_config(paths.inner()).map_err(|error| error.to_string())?;
+    let mut config = read_config(paths.inner());
     match ferramenta.trim().to_ascii_lowercase().as_str() {
         "claude" => config.envio.claude = enviar,
         "codex" => config.envio.codex = enviar,
@@ -790,7 +819,7 @@ async fn envio_send_now(app: AppHandle) -> Value {
 /// Limpa o historico de envios em memoria. Devolve o estado ja' atualizado.
 #[tauri::command]
 fn clear_send_log(paths: State<'_, RuntimePaths>, shared: State<'_, Arc<SharedState>>) -> Value {
-    shared.inner().snapshot.lock().unwrap().send_log.clear();
+    lock_snapshot(shared.inner()).send_log.clear();
     envio_value(paths.inner(), shared.inner())
 }
 
@@ -803,10 +832,10 @@ fn apply_paused<R: Runtime>(
     shared: &Arc<SharedState>,
     paused: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    shared.snapshot.lock().unwrap().paused = paused;
+    lock_snapshot(shared).paused = paused;
 
     // Persiste em config.envio.pausado (sobrevive a reinicios).
-    let mut config = load_or_create_config(paths)?;
+    let mut config = read_config(paths);
     if config.envio.pausado != paused {
         config.envio.pausado = paused;
         write_config(paths, &config)?;
@@ -829,8 +858,8 @@ fn apply_paused<R: Runtime>(
 /// Estado para o widget da area de trabalho: preferencias do widget mais as
 /// metricas atuais (o mesmo snapshot da tela "Uso atual"). Barato e sem rede.
 fn widget_state_value(paths: &RuntimePaths, shared: &Arc<SharedState>) -> Value {
-    let snapshot = shared.snapshot.lock().unwrap().clone();
-    let config = load_or_create_config(paths).unwrap_or_default();
+    let snapshot = lock_snapshot(shared).clone();
+    let config = read_config(paths);
     let widget = &config.widget;
     json!({
         "habilitado": widget.habilitado,
@@ -865,7 +894,7 @@ fn get_widget_state(paths: State<'_, RuntimePaths>, shared: State<'_, Arc<Shared
 /// nao pode ser lido. So' e' chamado quando o caminho do fundo muda.
 #[tauri::command]
 fn read_widget_background(paths: State<'_, RuntimePaths>) -> Option<String> {
-    let config = load_or_create_config(paths.inner()).ok()?;
+    let config = read_config(paths.inner());
     let path = config.widget.fundo.trim();
     if path.is_empty() {
         return None;
@@ -1285,7 +1314,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
                 app.try_state::<Arc<SharedState>>(),
                 app.try_state::<RuntimePaths>(),
             ) {
-                let new_paused = !shared.snapshot.lock().unwrap().paused;
+                let new_paused = !lock_snapshot(shared.inner()).paused;
                 if let Err(error) = apply_paused(app, paths.inner(), &shared, new_paused) {
                     handle_runtime_error(app, &format!("Falha ao alterar a pausa: {error}"));
                 }
@@ -1317,10 +1346,11 @@ fn trigger_collection<R: Runtime>(app: &AppHandle<R>) {
     );
 
     thread::spawn(move || {
+        // Reseta o flag mesmo em panic (RAII), para nao travar futuros cliques.
+        let _guard = FlagGuard(&shared.manual_pending);
         // "Enviar agora" sempre envia ao Loki, mesmo com o envio pausado
         // (respeitando o desligamento por provider em config.envio).
         let _ = run_collection_cycle(&app_handle, &paths, &shared, true);
-        shared.manual_pending.store(false, Ordering::SeqCst);
     });
 }
 
@@ -1334,7 +1364,7 @@ fn start_worker<R: Runtime + 'static>(
             break;
         }
 
-        let mut interval = current_interval(&app, &paths);
+        let mut interval = current_interval(&paths);
 
         // Sempre coleta: os dados alimentam o tray, a barra e o widget mesmo com o
         // envio pausado/desabilitado. O proprio ciclo decide, por provider, se
@@ -1360,8 +1390,13 @@ fn start_worker<R: Runtime + 'static>(
 
             let current = config_mtime(&paths);
             if current != last_mtime {
+                // Edicao manual do config.json: normaliza/reescreve uma unica vez
+                // aqui (clamp, campos novos) — os caminhos de leitura usam
+                // `read_config`, que nao reescreve. Depois reaplica tray/barra/
+                // widget e o intervalo.
+                let _ = load_or_create_config(&paths);
                 let _ = refresh_tray(&app, &shared);
-                interval = current_interval(&app, &paths);
+                interval = current_interval(&paths);
                 // Re-le o mtime apos aplicar: refresh_tray/normalizacao podem
                 // reescrever o arquivo, e nao queremos tratar a propria escrita
                 // como uma nova edicao externa.
@@ -1371,16 +1406,10 @@ fn start_worker<R: Runtime + 'static>(
     });
 }
 
-/// Le o intervalo de coleta (segundos) do config.json, com clamp 5..=3600 e
-/// fallback de 10s em caso de erro de leitura.
-fn current_interval<R: Runtime>(app: &AppHandle<R>, paths: &RuntimePaths) -> u64 {
-    match load_or_create_config(paths) {
-        Ok(config) => config.intervalo_segundos.clamp(5, 3600),
-        Err(error) => {
-            handle_runtime_error(app, &format!("Falha ao carregar config: {error}"));
-            10
-        }
-    }
+/// Le o intervalo de coleta (segundos) do config.json. `read_config` ja' aplica o
+/// clamp 5..=3600 e cai no padrao (10s) se o arquivo nao puder ser lido.
+fn current_interval(paths: &RuntimePaths) -> u64 {
+    read_config(paths).intervalo_segundos
 }
 
 /// Data de modificacao do config.json, usada para detectar edicoes externas.
@@ -1408,6 +1437,10 @@ fn http_client() -> Client {
         .clone()
 }
 
+/// Resultado da coleta de um provedor: `None` quando o provedor esta'
+/// desabilitado; senao `Ok(metrica)` ou `Err(mensagem)`.
+type CollectOutcome = Option<Result<UsageMetric, String>>;
+
 /// Coleta as metricas dos providers habilitados (sempre, para alimentar o tray, a
 /// barra e o widget) e envia ao Loki conforme as regras de envio.
 ///
@@ -1425,143 +1458,132 @@ fn run_collection_cycle<R: Runtime>(
     shared: &Arc<SharedState>,
     manual: bool,
 ) -> Result<(), String> {
-    let _lock = shared.cycle_lock.lock().unwrap();
-    let config = load_or_create_config(paths).map_err(|error| error.to_string())?;
+    let _lock = shared
+        .cycle_lock
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let config = read_config(paths);
     let client = http_client();
 
     // "Enviar agora" (manual) ignora a pausa; o ciclo automatico a respeita. Em
     // ambos os casos, o desligamento por provider (config.envio) e' respeitado.
-    let paused = shared.snapshot.lock().unwrap().paused;
+    let paused = lock_snapshot(shared).paused;
     let send_allowed = manual || !paused;
     let send_codex = send_allowed && config.envio.codex;
     let send_claude = send_allowed && config.envio.claude;
 
+    let codex_enabled = config.providers.codex.habilitado;
+    let claude_enabled = config.providers.claude.habilitado;
+
+    // Coleta os dois provedores em paralelo: cada GET tem timeout de 15s, entao
+    // serializa-los faria o ciclo (e a janela do `cycle_lock`) somar as latencias.
+    // As coletas sao puras (client + config), sem tocar no estado compartilhado;
+    // o processamento (snapshot, envio, log) acontece depois, em sequencia.
+    let (codex_result, claude_result): (CollectOutcome, CollectOutcome) =
+        thread::scope(|scope| {
+            let codex_handle =
+                codex_enabled.then(|| scope.spawn(|| collect_codex_metric(&client, &config)));
+            let claude_result = claude_enabled.then(|| collect_claude_metric(&client, &config));
+            let codex_result = codex_handle.map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("Panico durante a coleta do Codex.".to_string()))
+            });
+            (codex_result, claude_result)
+        });
+
     let mut had_error = false;
-
-    if config.providers.codex.habilitado {
-        match collect_codex_metric(&client, &config) {
-            Ok(metric) => {
-                update_metric(shared, metric.clone());
-                // A coleta sempre atualiza os dados/UI; o envio ao Loki ocorre
-                // conforme as regras de envio (pausa geral + config.envio por
-                // provider). "Enviar agora" ignora a pausa.
-                if send_codex {
-                    if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
-                        had_error = true;
-                        let _ = append_log_line(
-                            paths,
-                            "error",
-                            "Falha ao enviar metrica para o Loki.",
-                            Some(json!({
-                                "ferramenta": "codex",
-                                "error": error
-                            })),
-                        );
-                        push_send_log(shared, "codex", "falha", Some(error.clone()));
-                        handle_runtime_error(app, &error);
-                    } else {
-                        let _ = append_log_line(
-                            paths,
-                            "info",
-                            "Metrica enviada para o Loki.",
-                            Some(json!({
-                                "ferramenta": "codex",
-                                "uso_percentual": metric.uso_percentual,
-                                "uso_percentual_7d": metric.uso_percentual_7d,
-                                "status": metric.status,
-                                "reset_em": metric.reset_em,
-                                "reset_em_7d": metric.reset_em_7d
-                            })),
-                        );
-                        push_send_log(shared, "codex", "sucesso", None);
-                        mark_success(shared);
-                    }
-                }
-            }
-            Err(error) => {
-                had_error = true;
-                let metric = build_error_metric(&config.usuario, "codex", &error);
-                update_metric(shared, metric);
-                let _ = append_log_line(
-                    paths,
-                    "error",
-                    "Falha ao coletar metrica.",
-                    Some(json!({
-                        "ferramenta": "codex",
-                        "error": error
-                    })),
-                );
-                handle_runtime_error(app, &error);
-            }
-        }
+    if let Some(result) = codex_result {
+        had_error |=
+            handle_collected(app, paths, shared, &client, &config, "codex", result, send_codex);
+    }
+    if let Some(result) = claude_result {
+        had_error |= handle_collected(
+            app, paths, shared, &client, &config, "claude", result, send_claude,
+        );
     }
 
-    if config.providers.claude.habilitado {
-        match collect_claude_metric(&client, &config) {
-            Ok(metric) => {
-                update_metric(shared, metric.clone());
-                // A coleta sempre atualiza os dados/UI; o envio ao Loki ocorre
-                // conforme as regras de envio (pausa geral + config.envio por
-                // provider). "Enviar agora" ignora a pausa.
-                if send_claude {
-                    if let Err(error) = send_metric_to_loki(&client, &config, &metric) {
-                        had_error = true;
-                        let _ = append_log_line(
-                            paths,
-                            "error",
-                            "Falha ao enviar metrica para o Loki.",
-                            Some(json!({
-                                "ferramenta": "claude",
-                                "error": error
-                            })),
-                        );
-                        push_send_log(shared, "claude", "falha", Some(error.clone()));
-                        handle_runtime_error(app, &error);
-                    } else {
-                        let _ = append_log_line(
-                            paths,
-                            "info",
-                            "Metrica enviada para o Loki.",
-                            Some(json!({
-                                "ferramenta": "claude",
-                                "uso_percentual": metric.uso_percentual,
-                                "uso_percentual_7d": metric.uso_percentual_7d,
-                                "status": metric.status,
-                                "reset_em": metric.reset_em,
-                                "reset_em_7d": metric.reset_em_7d
-                            })),
-                        );
-                        push_send_log(shared, "claude", "sucesso", None);
-                        mark_success(shared);
-                    }
-                }
-            }
-            Err(error) => {
-                had_error = true;
-                let metric = build_error_metric(&config.usuario, "claude", &error);
-                update_metric(shared, metric);
-                let _ = append_log_line(
-                    paths,
-                    "error",
-                    "Falha ao coletar metrica.",
-                    Some(json!({
-                        "ferramenta": "claude",
-                        "error": error
-                    })),
-                );
-                handle_runtime_error(app, &error);
-            }
-        }
-    }
-
-    if !config.providers.codex.habilitado && !config.providers.claude.habilitado {
-        handle_runtime_error(app, "Nenhum provider habilitado.");
+    if !codex_enabled && !claude_enabled {
+        record_runtime_error(app, "Nenhum provider habilitado.");
     } else if !had_error {
         clear_last_error(shared);
     }
 
+    // Um unico refresh do tray por ciclo (os erros acima usam `record_runtime_error`,
+    // que nao refresca, para nao repintar varias vezes).
     refresh_tray(app, shared).map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// Processa o resultado da coleta de um provedor: atualiza o snapshot (sempre) e,
+/// se o envio estiver permitido, envia ao Loki, registrando sucesso/falha no
+/// historico e no log. Retorna `true` se houve erro (coleta ou envio). Nao toca no
+/// tray — o ciclo faz um unico `refresh_tray` no fim.
+#[allow(clippy::too_many_arguments)]
+fn handle_collected<R: Runtime>(
+    app: &AppHandle<R>,
+    paths: &RuntimePaths,
+    shared: &Arc<SharedState>,
+    client: &Client,
+    config: &AppConfig,
+    ferramenta: &str,
+    result: Result<UsageMetric, String>,
+    send_allowed: bool,
+) -> bool {
+    match result {
+        Ok(metric) => {
+            // A coleta sempre atualiza os dados/UI; o envio ao Loki ocorre conforme
+            // as regras de envio (pausa geral + config.envio). "Enviar agora" ignora
+            // a pausa.
+            update_metric(shared, metric.clone());
+            if !send_allowed {
+                return false;
+            }
+            match send_metric_to_loki(client, config, &metric) {
+                Ok(()) => {
+                    let _ = append_log_line(
+                        paths,
+                        "info",
+                        "Metrica enviada para o Loki.",
+                        Some(json!({
+                            "ferramenta": ferramenta,
+                            "uso_percentual": metric.uso_percentual,
+                            "uso_percentual_7d": metric.uso_percentual_7d,
+                            "status": metric.status,
+                            "reset_em": metric.reset_em,
+                            "reset_em_7d": metric.reset_em_7d
+                        })),
+                    );
+                    push_send_log(shared, ferramenta, "sucesso", None);
+                    mark_success(shared);
+                    false
+                }
+                Err(error) => {
+                    let _ = append_log_line(
+                        paths,
+                        "error",
+                        "Falha ao enviar metrica para o Loki.",
+                        Some(json!({ "ferramenta": ferramenta, "error": error })),
+                    );
+                    push_send_log(shared, ferramenta, "falha", Some(error.clone()));
+                    record_runtime_error(app, &error);
+                    true
+                }
+            }
+        }
+        Err(error) => {
+            let metric = build_error_metric(&config.usuario, ferramenta, &error);
+            update_metric(shared, metric);
+            let _ = append_log_line(
+                paths,
+                "error",
+                "Falha ao coletar metrica.",
+                Some(json!({ "ferramenta": ferramenta, "error": error })),
+            );
+            record_runtime_error(app, &error);
+            true
+        }
+    }
 }
 
 fn collect_codex_metric(client: &Client, config: &AppConfig) -> Result<UsageMetric, String> {
@@ -1716,16 +1738,25 @@ fn collect_claude_metric(client: &Client, config: &AppConfig) -> Result<UsageMet
     })
 }
 
+/// Hostname da maquina, calculado uma unica vez (nao muda durante a execucao).
+fn host_name() -> String {
+    static HOST: OnceLock<String> = OnceLock::new();
+    HOST.get_or_init(|| {
+        hostname::get()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    })
+    .clone()
+}
+
 fn send_metric_to_loki(client: &Client, config: &AppConfig, metric: &UsageMetric) -> Result<(), String> {
     if config.loki.url.trim().is_empty() {
         return Err("URL do Loki nao configurada.".to_string());
     }
 
     let timestamp_nanos = iso_to_nanos(&metric.coletado_em)?;
-    let host = hostname::get()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
+    let host = host_name();
 
     let mut body = json!({
         "uso_percentual": metric.uso_percentual,
@@ -1786,14 +1817,14 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
         // tooltip, a barra de tarefas e o widget separadamente).
         let config = app
             .try_state::<RuntimePaths>()
-            .and_then(|paths| load_or_create_config(paths.inner()).ok());
+            .map(|paths| read_config(paths.inner()));
 
         // Metrica de provider desabilitado nao deve sobreviver no snapshot: senao
         // o tooltip/menu do tray exibiriam um valor obsoleto depois de desligar o
         // provider. O snapshot e' a fonte unica (tambem lida por "Uso atual" e pelo
         // widget, que ja' tratam o estado "desabilitado").
         let snapshot = {
-            let mut guard = shared.snapshot.lock().unwrap();
+            let mut guard = lock_snapshot(shared);
             if let Some(config) = &config {
                 if !config.providers.codex.habilitado {
                     guard.codex_metric = None;
@@ -1867,7 +1898,7 @@ fn refresh_tray<R: Runtime>(app: &AppHandle<R>, shared: &Arc<SharedState>) -> ta
 }
 
 fn update_metric(shared: &Arc<SharedState>, metric: UsageMetric) {
-    let mut snapshot = shared.snapshot.lock().unwrap();
+    let mut snapshot = lock_snapshot(shared);
     match metric.ferramenta.as_str() {
         "codex" => snapshot.codex_metric = Some(metric),
         "claude" => snapshot.claude_metric = Some(metric),
@@ -1876,14 +1907,14 @@ fn update_metric(shared: &Arc<SharedState>, metric: UsageMetric) {
 }
 
 fn mark_success(shared: &Arc<SharedState>) {
-    let mut snapshot = shared.snapshot.lock().unwrap();
+    let mut snapshot = lock_snapshot(shared);
     snapshot.last_successful_send_at = Some(Utc::now().to_rfc3339());
 }
 
 /// Registra uma tentativa de envio no historico em memoria (anel). Mantem no
 /// maximo `SEND_LOG_MAX` entradas, descartando as mais antigas.
 fn push_send_log(shared: &Arc<SharedState>, ferramenta: &str, status: &str, detalhe: Option<String>) {
-    let mut snapshot = shared.snapshot.lock().unwrap();
+    let mut snapshot = lock_snapshot(shared);
     snapshot.send_log.push(SendLogEntry {
         timestamp: Utc::now().to_rfc3339(),
         ferramenta: ferramenta.to_string(),
@@ -1897,23 +1928,25 @@ fn push_send_log(shared: &Arc<SharedState>, ferramenta: &str, status: &str, deta
 }
 
 fn clear_last_error(shared: &Arc<SharedState>) {
-    let mut snapshot = shared.snapshot.lock().unwrap();
+    let mut snapshot = lock_snapshot(shared);
     snapshot.last_error = None;
 }
 
-fn handle_runtime_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
+/// Registra um erro de runtime (estado + log) SEM atualizar o tray. Usado dentro
+/// do ciclo de coleta, que faz um unico `refresh_tray` no fim — evita repintar o
+/// tray varias vezes por ciclo.
+fn record_runtime_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
     if let Some(shared) = app.try_state::<Arc<SharedState>>() {
-        let mut snapshot = shared.snapshot.lock().unwrap();
-        snapshot.last_error = Some(message.to_string());
+        lock_snapshot(shared.inner()).last_error = Some(message.to_string());
     }
+    let _ = append_log_line(app.state::<RuntimePaths>().inner(), "error", message, None);
+}
 
-    let _ = append_log_line(
-        app.state::<RuntimePaths>().inner(),
-        "error",
-        message,
-        None,
-    );
-
+/// Registra um erro de runtime e atualiza o tray na hora. Para os pontos avulsos
+/// (itens de menu, erros de janela) que nao tem um `refresh_tray` posterior
+/// garantido.
+fn handle_runtime_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
+    record_runtime_error(app, message);
     if let Some(shared) = app.try_state::<Arc<SharedState>>() {
         let _ = refresh_tray(app, &shared);
     }
@@ -2246,6 +2279,28 @@ fn runtime_paths() -> Result<RuntimePaths, Box<dyn std::error::Error>> {
     Err("Sistema operacional nao suportado.".into())
 }
 
+/// Aplica os limites sensatos aos campos numericos (clamp), in-place. Compartilhado
+/// pela leitura (`read_config`), pela criacao/normalizacao (`load_or_create_config`)
+/// e pelo save das Configuracoes (`save_settings`).
+fn normalize_config(config: &mut AppConfig) {
+    config.intervalo_segundos = config.intervalo_segundos.clamp(5, 3600);
+    config.widget.opacidade = config.widget.opacidade.clamp(0, 100);
+}
+
+/// Le e normaliza (clamp) o config.json SEM o round-trip de `Value` nem reescrita
+/// — barato e sem efeito colateral em disco. E' a variante usada nos caminhos de
+/// leitura quentes (comandos de UI em polling, refresh do tray, ciclo de coleta).
+/// A criacao do arquivo e a normalizacao-com-reescrita ficam em
+/// `load_or_create_config` (boot + deteccao de edicao manual no worker).
+fn read_config(paths: &RuntimePaths) -> AppConfig {
+    let Ok(content) = fs::read_to_string(&paths.config_file) else {
+        return AppConfig::default();
+    };
+    let mut config: AppConfig = serde_json::from_str(&content).unwrap_or_default();
+    normalize_config(&mut config);
+    config
+}
+
 fn load_or_create_config(paths: &RuntimePaths) -> Result<AppConfig, Box<dyn std::error::Error>> {
     if !paths.config_file.exists() {
         let default_config = AppConfig::default();
@@ -2257,8 +2312,7 @@ fn load_or_create_config(paths: &RuntimePaths) -> Result<AppConfig, Box<dyn std:
     // Campos ausentes sao preenchidos com os padroes (containers com
     // `#[serde(default)]`), preservando os valores ja existentes no arquivo.
     let mut config: AppConfig = serde_json::from_str(&content)?;
-    config.intervalo_segundos = config.intervalo_segundos.clamp(5, 3600);
-    config.widget.opacidade = config.widget.opacidade.clamp(0, 100);
+    normalize_config(&mut config);
 
     // Normaliza o arquivo: se algo estava faltando (ou fora do clamp), regrava
     // com a estrutura completa. A comparacao e feita sobre `Value` para ignorar
