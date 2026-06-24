@@ -441,7 +441,8 @@ pub fn run() {
             set_envio_paused,
             set_envio_provider,
             envio_send_now,
-            clear_send_log
+            clear_send_log,
+            check_updates_now
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
@@ -566,6 +567,7 @@ fn settings_value<R: Runtime>(app: &AppHandle<R>, paths: &RuntimePaths) -> Value
         "autostart": autostart,
         "os": std::env::consts::OS,
         "autostartLabel": autostart_label(),
+        "appVersion": app.package_info().version.to_string(),
     });
     value["config"] = serde_json::to_value(&config).unwrap_or(Value::Null);
     value
@@ -1909,6 +1911,14 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
     use tauri_plugin_updater::UpdaterExt;
 
+    // Nome do app (productName) para identificar o que esta' sendo atualizado nos
+    // dialogos — o usuario pode ter varias bandejas/apps abertos.
+    let app_name = app
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "AiUsageTrayAgent".to_string());
+
     let log_error = |app: &AppHandle<R>, message: &str| {
         if let Some(paths) = app.try_state::<RuntimePaths>() {
             let _ = append_log_line(paths.inner(), "error", message, None);
@@ -1917,7 +1927,7 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
     let notify = |app: &AppHandle<R>, message: String| {
         app.dialog()
             .message(message)
-            .title("Atualização")
+            .title(app_name.as_str())
             .buttons(MessageDialogButtons::Ok)
             .blocking_show();
     };
@@ -1927,7 +1937,10 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
         Err(error) => {
             log_error(&app, &format!("Updater indisponível: {error}"));
             if manual {
-                notify(&app, "Não foi possível verificar atualizações.".to_string());
+                notify(
+                    &app,
+                    format!("Não foi possível verificar atualizações do {app_name}."),
+                );
             }
             return;
         }
@@ -1935,13 +1948,14 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
 
     match updater.check().await {
         Ok(Some(update)) => {
+            let current = update.current_version.clone();
             let version = update.version.clone();
             let proceed = app
                 .dialog()
                 .message(format!(
-                    "Nova versão {version} disponível. Deseja baixar e instalar agora?\nO app será reiniciado ao concluir."
+                    "Há uma nova versão do {app_name} disponível.\n\nVersão atual: {current}\nNova versão: {version}\n\nDeseja baixar e instalar agora? O app será reiniciado ao concluir."
                 ))
-                .title("Atualização disponível")
+                .title(app_name.as_str())
                 .buttons(MessageDialogButtons::OkCancelCustom(
                     "Atualizar".to_string(),
                     "Agora não".to_string(),
@@ -1958,13 +1972,19 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
                 }
                 Err(error) => {
                     log_error(&app, &format!("Falha ao instalar atualização: {error}"));
-                    notify(&app, format!("Falha ao instalar a atualização: {error}"));
+                    notify(
+                        &app,
+                        format!("Falha ao instalar a atualização do {app_name}: {error}"),
+                    );
                 }
             }
         }
         Ok(None) => {
             if manual {
-                notify(&app, "Você já está na versão mais recente.".to_string());
+                notify(
+                    &app,
+                    format!("O {app_name} já está na versão mais recente."),
+                );
             }
         }
         Err(error) => {
@@ -1972,11 +1992,19 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
             if manual {
                 notify(
                     &app,
-                    format!("Não foi possível verificar atualizações: {error}"),
+                    format!("Não foi possível verificar atualizações do {app_name}: {error}"),
                 );
             }
         }
     }
+}
+
+/// Acionado pelo botao "Buscar atualizacoes" da aba Sistema (Configuracoes).
+/// Dispara a verificacao em segundo plano (mesma usada pelo tray), com feedback
+/// via dialogo nativo. Retorna na hora; o trabalho corre na tarefa async.
+#[tauri::command]
+fn check_updates_now(app: AppHandle) {
+    tauri::async_runtime::spawn(check_for_updates(app, true));
 }
 
 fn build_error_metric(usuario: &str, ferramenta: &str, erro: &str) -> UsageMetric {

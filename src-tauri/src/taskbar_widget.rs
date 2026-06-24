@@ -87,6 +87,7 @@ const CMD_OPEN_LOGS: usize = 3;
 const CMD_SEND_NOW: usize = 4;
 const CMD_TOGGLE_PAUSE: usize = 5;
 const CMD_QUIT: usize = 6;
+const CMD_CHECK_UPDATES: usize = 7;
 
 /// Converte o id numerico do menu Win32 no id de acao usado por `handle_menu_event`.
 fn menu_command_id(cmd: usize) -> Option<&'static str> {
@@ -96,6 +97,7 @@ fn menu_command_id(cmd: usize) -> Option<&'static str> {
         CMD_OPEN_LOGS => Some("open_logs"),
         CMD_SEND_NOW => Some("send_now"),
         CMD_TOGGLE_PAUSE => Some("toggle_pause"),
+        CMD_CHECK_UPDATES => Some("check_updates"),
         CMD_QUIT => Some("quit"),
         _ => None,
     }
@@ -945,6 +947,7 @@ pub unsafe fn show_context_menu() {
     let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN_LOGS, w!("Abrir pasta de logs"));
     let _ = AppendMenuW(menu, MF_STRING, CMD_SEND_NOW, w!("Enviar agora"));
     let _ = AppendMenuW(menu, MF_STRING, CMD_TOGGLE_PAUSE, pause_label);
+    let _ = AppendMenuW(menu, MF_STRING, CMD_CHECK_UPDATES, w!("Buscar atualizações"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, CMD_QUIT, w!("Sair"));
 
