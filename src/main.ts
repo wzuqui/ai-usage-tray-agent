@@ -1,6 +1,7 @@
 // Shell do app: troca entre as seções (Uso atual / Dashboard Claude /
 // Configurações) pelo menu lateral. Janela única, aberta pelo clique esquerdo
 // no tray ou pelo item "Abrir". A seção padrão é "Uso atual".
+import { initCodexDashboard, loadCodexDashboard } from "./codex-dashboard";
 import { initDashboard, loadDashboard } from "./dashboard";
 import { initEnvio, loadEnvio } from "./envio";
 import { initSettings } from "./settings";
@@ -14,6 +15,7 @@ function activate(view: string): void {
   if (view === "envio") initEnvio();
   else if (view === "usage") void loadUsage();
   else if (view === "dashboard") initDashboard();
+  else if (view === "codex-dashboard") initCodexDashboard();
   else if (view === "settings") initSettings();
 }
 
@@ -27,6 +29,7 @@ window.addEventListener("focus", () => {
   if (document.getElementById("view-envio")?.classList.contains("on")) void loadEnvio();
   else if (document.getElementById("view-usage")?.classList.contains("on")) void loadUsage();
   else if (document.getElementById("view-dashboard")?.classList.contains("on")) void loadDashboard();
+  else if (document.getElementById("view-codex-dashboard")?.classList.contains("on")) void loadCodexDashboard();
 });
 
 initUsage();
