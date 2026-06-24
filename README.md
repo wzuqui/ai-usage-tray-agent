@@ -31,8 +31,10 @@ Funcional, com:
   abas e **auto-save**)
 - Widget na barra de tarefas (Windows) e **widget flutuante na área de trabalho**
 - Empacotamento pronto:
-  - Windows: instalador `.msi` e `AiUsageTrayAgent-portable.exe` (portátil)
+  - Windows: instalador `.msi`
   - Linux: `AppImage`
+- Atualização automática (OTA) das versões instaladas (Windows `.msi` e Linux
+  `AppImage`)
 
 ## Configuração
 
@@ -364,7 +366,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 O repositório já está preparado para gerar:
 
-- Windows: `.msi` (instalador) e `AiUsageTrayAgent-portable.exe` (portátil, sem instalar)
+- Windows: `.msi` (instalador)
 - Linux: `AppImage`
 
 Arquivos relevantes:
@@ -375,10 +377,35 @@ Arquivos relevantes:
 
 O workflow de release roda:
 
-- automaticamente em `push` para `main`
-- e sempre recria a release `main-latest` com os artefatos mais recentes
+- automaticamente em `push` para `main`, **apenas no repositório oficial
+  (upstream)** — pushes em forks não publicam release
+- a cada execução define a versão como `0.2.<número da execução>` (o updater
+  compara semver, então a versão precisa incrementar a cada build)
+- assina os artefatos e gera o `latest.json` (manifesto consumido pelo updater)
+- sempre recria a release `main-latest` com os artefatos mais recentes
 
 Para publicar no GitHub Releases, garanta que o repositório permita `GITHUB_TOKEN` com permissão de escrita em Actions.
+
+## Atualizações automáticas (OTA)
+
+O app se atualiza sozinho usando o updater oficial do Tauri v2. Ao iniciar, ele
+verifica em segundo plano se há uma versão mais nova publicada na release
+`main-latest` do repositório oficial; havendo, **pergunta** antes de baixar e
+instalar e, ao concluir, reinicia já na versão nova. Também há o item **Buscar
+atualizações** no menu do tray para checar na hora.
+
+- Cobre as versões **instaladas**: Windows (`.msi`) e Linux (`AppImage`). A
+  verificação compara a versão instalada com a do manifesto.
+- A assinatura é obrigatória: cada release é assinada com a chave privada do
+  projeto (secret no repositório) e o app só aceita pacotes cuja assinatura bata
+  com a chave pública embutida (`plugins.updater.pubkey` no `tauri.conf.json`).
+- Quem já tinha uma versão **sem** o updater precisa instalar manualmente uma vez
+  para passar a receber as atualizações automáticas dali em diante.
+
+Para publicar updates, o repositório oficial precisa dos secrets de assinatura
+`TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` configurados em
+Actions. Guarde a chave privada com segurança: sem ela não é possível assinar
+updates que os apps já instalados aceitem.
 
 ## Dashboard Grafana
 
