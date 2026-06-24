@@ -147,7 +147,7 @@ function renderLog(): void {
       const detalhe = e.detalhe ? `<span class="envio-log-det">${escapeHtml(e.detalhe)}</span>` : "";
       return `<div class="envio-log-row${ok ? "" : " err"}">
         ${dot}
-        <span class="envio-log-time" data-ts="${e.timestamp}">${fmtLogTime(e.timestamp)}</span>
+        <span class="envio-log-time" data-ts="${escapeHtml(e.timestamp)}">${fmtLogTime(e.timestamp)}</span>
         <span class="envio-log-tool">${iconFor(e.ferramenta)} ${nameFor(e.ferramenta)}</span>
         <span class="envio-log-status">${ok ? "sucesso" : "falha"}</span>
         ${detalhe}
@@ -172,11 +172,29 @@ function tick(): void {
   if (last) last.textContent = fmtAgo(DATA.lastSuccessAt);
 }
 
-/// Aplica um novo estado recebido do backend e re-renderiza. Não re-renderiza os
-/// providers se o foco estiver num toggle (evita perder o estado de interação).
+/// Aplica um novo estado recebido do backend após uma ação do usuário e
+/// re-renderiza a tela inteira, inclusive os toggles de provedor.
 function apply(state: EnvioState): void {
   DATA = state;
   render();
+}
+
+/// Atualização leve do poll (a cada 2s): rebusca o estado e re-renderiza só o que
+/// muda sozinho — pausa (pode vir do tray), último envio e histórico. Os toggles
+/// de "Enviar ao Loki" refletem `config.envio`, que só muda por esta tela, então
+/// não são reconstruídos no poll (reconstruí-los a cada 2s só arriscaria perder um
+/// clique/foco). Mudanças neles vêm por `apply()`/`loadEnvio()`.
+async function pollEnvio(): Promise<void> {
+  let state: EnvioState;
+  try {
+    state = await invoke<EnvioState>("get_envio_state");
+  } catch {
+    return; // transitório; mantém o que está na tela
+  }
+  DATA = state;
+  renderBanner();
+  renderState();
+  renderLog();
 }
 
 export async function loadEnvio(): Promise<void> {
@@ -240,11 +258,12 @@ export function initEnvio(): void {
   (el("envio-clear") as HTMLButtonElement).onclick = () => void clearLog();
 
   // A cada 1s atualiza o "há Xs"; a cada 2s rebusca o estado (histórico em quase
-  // tempo real). Só trabalha com a tela ativa. get_envio_state é barato (sem rede).
+  // tempo real) via pollEnvio, que re-renderiza só banner/estado/log — sem
+  // reconstruir os toggles de provedor. Só trabalha com a tela ativa.
   setInterval(() => {
     if (!isActive()) return;
     tick();
-    if (++tickCount % 2 === 0 && !sending) void loadEnvio();
+    if (++tickCount % 2 === 0 && !sending) void pollEnvio();
   }, 1000);
 
   void loadEnvio();

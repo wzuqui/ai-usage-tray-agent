@@ -64,7 +64,7 @@ function windowBlock(
     const when = timeOnly
       ? `<div class="ur-line"><span class="ur-k">Horário:</span> <span class="u-time">${fmtTime(resetIso)}</span></div>`
       : `<div class="ur-exact">${fmtExact(resetIso)}</div>`;
-    reset = `<div class="ur-line"><span class="ur-k">Reset em</span> <span class="u-remain" data-reset="${resetIso}">${fmtRemaining(resetIso)}</span></div>${when}`;
+    reset = `<div class="ur-line"><span class="ur-k">Reset em</span> <span class="u-remain" data-reset="${escapeHtml(resetIso)}">${fmtRemaining(resetIso)}</span></div>${when}`;
   } else {
     reset = `<div class="ur-line ur-k">Sem horário de reset.</div>`;
   }
@@ -95,7 +95,7 @@ function renderProvider(label: string, prov: ProviderUsage): string {
     return `<div class="uprov error">${head('<span class="ubadge err">erro</span>')}
       <div class="uprov-note err">${escapeHtml(m.erro ?? "Falha na coleta.")}</div></div>`;
   }
-  const meta = `<span class="u-fresh" data-collected="${m.coletado_em}">${fmtFresh(m.coletado_em)}</span>`;
+  const meta = `<span class="u-fresh" data-collected="${escapeHtml(m.coletado_em)}">${fmtFresh(m.coletado_em)}</span>`;
   return `<div class="uprov">${head(meta)}
     <div class="uwins">
       ${windowBlock("Sessão (5h)", m.uso_percentual, m.reset_em, true)}
