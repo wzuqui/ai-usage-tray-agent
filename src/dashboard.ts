@@ -109,8 +109,10 @@ function filtered(): { days: DayStats[]; sessions: SessionEntry[] } {
 function streaks(days: DayStats[]): { current: number; longest: number } {
   const active = new Set(days.filter((d) => d.msgs > 0 || d.sessions > 0).map((d) => d.date));
   let longest = 0, run = 0;
-  const today = new Date();
-  for (let d = new Date(days[0]?.date ?? dkey(today)); d <= today; d.setDate(d.getDate() + 1)) {
+  // Meio-dia local (como heatmap/gráfico) para evitar o off-by-one de parsear
+  // "YYYY-MM-DD" como meia-noite UTC em fusos negativos.
+  const today = new Date(dkey(new Date()) + "T12:00:00");
+  for (let d = new Date((days[0]?.date ?? dkey(today)) + "T12:00:00"); d <= today; d.setDate(d.getDate() + 1)) {
     if (active.has(dkey(d))) { run++; longest = Math.max(longest, run); } else run = 0;
   }
   // sequência atual: termina hoje (ou ontem, se hoje ainda sem uso)

@@ -71,9 +71,11 @@ function dayLabel(dateStr: string): string {
 const dayTotal = (s: Series) => s.segments.reduce((t, seg) => t + seg.val, 0);
 
 // ----- construção das séries por aba -----
-function buildSeries(): Series[] {
+// `forTab` permite construir as séries de uma aba específica (usado pelos cards
+// de "predominantes") sem mexer no estado global `tab`; o padrão é a aba atual.
+function buildSeries(forTab: string = tab): Series[] {
   if (!DATA) return [];
-  if (tab === "modelos") {
+  if (forTab === "modelos") {
     const colorByKey = new Map<string, string>();
     let next = 0;
     return DATA.days.map((d) => ({
@@ -88,7 +90,7 @@ function buildSeries(): Series[] {
         .sort((a, b) => b.val - a.val),
     }));
   }
-  if (tab === "surfaces") {
+  if (forTab === "surfaces") {
     // cor estável por surface (ordem fixa da PALETTE pela ordem de SURFACE_LABELS)
     const order = Object.keys(SURFACE_LABELS);
     const colorByKey = (k: string) => PALETTE[Math.max(0, order.indexOf(k)) % PALETTE.length];
@@ -131,8 +133,8 @@ function renderCards(series: Series[]): void {
   totals.forEach((t, i) => { if (t > peakVal) { peakVal = t; peakIdx = i; } });
 
   // predominantes por surface e por modelo (independente da aba atual)
-  const topSurface = aggregate(buildSeriesFor("surfaces"))[0];
-  const topModel = aggregate(buildSeriesFor("modelos"))[0];
+  const topSurface = aggregate(buildSeries("surfaces"))[0];
+  const topModel = aggregate(buildSeries("modelos"))[0];
 
   const cards: [string, string][] = [
     ["Dias ativos", String(activeDays)],
@@ -145,14 +147,6 @@ function renderCards(series: Series[]): void {
   el("codex-cards").innerHTML = cards
     .map(([l, v]) => '<div class="card"><div class="lbl">' + l + '</div><div class="val">' + v + "</div></div>")
     .join("");
-}
-
-// helper para os cards: constrói séries de uma aba específica sem mexer no estado
-function buildSeriesFor(forTab: string): Series[] {
-  const saved = tab; tab = forTab;
-  const out = buildSeries();
-  tab = saved;
-  return out;
 }
 
 // ----- tooltip -----

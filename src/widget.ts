@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import {
   barColor,
+  escapeHtml,
   fmtRemaining,
   fmtResetClock,
   ICON_CLAUDE,
@@ -60,7 +61,7 @@ function windowBlock(
   if (resetIso) {
     reset = exact
       ? `<div class="wwin-reset">reset ${fmtResetClock(resetIso)}</div>`
-      : `<div class="wwin-reset">reset em <span class="w-remain" data-reset="${resetIso}">${fmtRemaining(resetIso)}</span></div>`;
+      : `<div class="wwin-reset">reset em <span class="w-remain" data-reset="${escapeHtml(resetIso)}">${fmtRemaining(resetIso)}</span></div>`;
   }
   return `<div class="wwin">
     <div class="wwin-top"><span class="wwin-label">${label}</span><span class="wwin-pct">${pctText(pct)}%</span></div>
