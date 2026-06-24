@@ -141,6 +141,25 @@ jobs:
           echo "latest.json gerado:"
           cat latest.json
 
+      # A release main-latest e' rolante e os nomes dos artefatos carregam a
+      # versao (0.2.<run>), entao builds diferentes geram nomes diferentes e os
+      # antigos nao sao sobrescritos. Apaga todos os assets atuais antes de
+      # publicar os novos, mantendo a release so' com o conjunto da build atual.
+      # Seguro para o OTA: os apps so' leem o latest.json (versao atual).
+      - name: Limpa assets antigos da release rolling
+        shell: bash
+        run: |
+          gh release view main-latest --repo "$GITHUB_REPOSITORY" \
+            --json assets -q '.assets[].name' 2>/dev/null \
+            | while read -r asset; do
+                [ -n "$asset" ] || continue
+                echo "removendo asset antigo: $asset"
+                gh release delete-asset main-latest "$asset" \
+                  --repo "$GITHUB_REPOSITORY" --yes || true
+              done || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish rolling release
         uses: softprops/action-gh-release@v2
         with:
