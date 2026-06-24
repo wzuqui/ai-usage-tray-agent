@@ -1,0 +1,7 @@
+# Manifestos TOML sempre em LF. Sem isto, com core.autocrlf=true no Windows o
+# git fica querendo converter o Cargo.toml (gravado em LF) para CRLF e o marca
+# como modificado eternamente, mesmo sem diferenca de conteudo.
+*.toml text eol=lf
+
+# O proprio .gitattributes em LF, para nao cair no mesmo churn do autocrlf.
+.gitattributes text eol=lf
