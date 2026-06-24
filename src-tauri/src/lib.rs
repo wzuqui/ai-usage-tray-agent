@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+mod codex_dashboard;
 mod usage_dashboard;
 
 #[cfg(target_os = "windows")]
@@ -429,6 +430,7 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             usage_dashboard::get_stats,
+            get_codex_stats,
             get_settings,
             save_settings,
             get_usage,
@@ -669,6 +671,23 @@ async fn force_collect(app: AppHandle) -> Value {
         // (pausa + config.envio); nao e' um envio manual forcado.
         let _ = run_collection_cycle(&app, &paths, &shared, false);
         usage_value(&paths, &shared)
+    })
+    .await
+    .unwrap_or_else(|error| json!({ "error": error.to_string() }))
+}
+
+/// Historico diario de uso do Codex para a tela "Dashboard Codex". Faz uma
+/// chamada de rede (analytics do backend do ChatGPT) usando o mesmo token do
+/// `auth.json` da coleta; por isso roda em `spawn_blocking` (reqwest sincrono).
+/// `days` e' o tamanho da janela (ex.: 7 ou 30) terminando hoje. Em falha,
+/// devolve `{ "error": "..." }` para a tela exibir a mensagem.
+#[tauri::command]
+async fn get_codex_stats(app: AppHandle, days: u32) -> Value {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = app.state::<RuntimePaths>().inner().clone();
+        let config = load_or_create_config(&paths).unwrap_or_default();
+        let client = http_client();
+        codex_dashboard::collect(&client, &config.providers.codex.auth_json_path, days)
     })
     .await
     .unwrap_or_else(|error| json!({ "error": error.to_string() }))

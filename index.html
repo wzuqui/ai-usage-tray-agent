@@ -16,6 +16,7 @@
           <button type="button" class="nav-item" data-view="envio">Envio de dados</button>
           <button type="button" class="nav-item on" data-view="usage">Uso atual</button>
           <button type="button" class="nav-item" data-view="dashboard">Dashboard Claude</button>
+          <button type="button" class="nav-item" data-view="codex-dashboard">Dashboard Codex</button>
           <button type="button" class="nav-item" data-view="settings">Configurações</button>
         </nav>
       </aside>
@@ -86,6 +87,34 @@
 
             <div class="fact" id="fact"></div>
             <div class="foot" id="foot"></div>
+          </div>
+        </section>
+
+        <!-- ===== Dashboard Codex ===== -->
+        <section id="view-codex-dashboard" class="view">
+          <h1>Uso do Codex</h1>
+          <p class="sub">Histórico diário de uso do Codex (em % da cota), por origem e por modelo. Carregado ao abrir a tela.</p>
+          <div class="panel">
+            <div class="toolbar">
+              <div class="tabs codex-tabs">
+                <button id="codex-tab-geral" class="on">Visão Geral</button>
+                <button id="codex-tab-surfaces">Origens</button>
+                <button id="codex-tab-modelos">Modelos</button>
+              </div>
+              <div class="ranges codex-ranges">
+                <button data-d="30" class="on">30d</button>
+                <button data-d="7">7d</button>
+              </div>
+            </div>
+
+            <div id="codex-view-geral">
+              <div class="cards" id="codex-cards"></div>
+            </div>
+
+            <div id="codex-chart"></div>
+            <div class="legend" id="codex-legend"></div>
+
+            <div class="foot" id="codex-foot"></div>
           </div>
         </section>
 

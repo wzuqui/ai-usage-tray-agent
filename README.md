@@ -11,7 +11,7 @@ O projeto foi feito com:
 ## O que ele faz
 
 - Inicia no tray sem abrir janela principal para o usuário
-- Tem uma janela nativa (webview) com **Envio de dados**, **Uso atual**, **Dashboard Claude** e **Configurações**
+- Tem uma janela nativa (webview) com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex** e **Configurações**
 - Coleta uso do Codex e do Claude em intervalo configurável
 - Envia logs estruturados JSON para Loki
 - Mantém logs locais
@@ -27,8 +27,8 @@ Funcional, com:
 - Coleta real do Codex usando `auth.json`
 - Coleta real do Claude usando `organizationId` e `sessionKey`
 - Envio para Loki sem `tenant` e sem `basic auth`
-- Janela do app com **Envio de dados**, **Uso atual**, **Dashboard Claude** e **Configurações** (com
-  abas e **auto-save**)
+- Janela do app com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex** e
+  **Configurações** (com abas e **auto-save**)
 - Widget na barra de tarefas (Windows) e **widget flutuante na área de trabalho**
 - Empacotamento pronto:
   - Windows: instalador `.msi`
@@ -150,7 +150,7 @@ Itens do menu:
 > itens do tray; são editadas nas **Configurações** do app (abas Barra de
 > tarefas e Sistema).
 
-## Janela do app (Envio de dados, Uso atual, Dashboard Claude e Configurações)
+## Janela do app (Envio de dados, Uso atual, Dashboard Claude, Dashboard Codex e Configurações)
 
 A interface é uma janela nativa (webview do Tauri), aberta pelo clique esquerdo
 no tray ou pelo item **Abrir**. Não usa navegador nem servidor HTTP local: o
@@ -197,6 +197,25 @@ Replica o painel de uso do Claude Code lendo as mesmas fontes locais
 (`~/.claude/projects/**/*.jsonl` e `~/.claude/stats-cache.json`): cards de
 resumo, heatmap de atividade e gráfico de tokens por modelo. Os dados vêm do
 comando `get_stats` e são recarregados ao reabrir a janela.
+
+### Dashboard Codex
+
+Mostra o **histórico diário de uso do Codex** (em % da cota), no mesmo estilo da
+Dashboard Claude. Os dados vêm de uma chamada à API de analytics do backend do
+ChatGPT (`/backend-api/wham/usage/daily-token-usage-breakdown`) usando o mesmo
+`access_token` do `auth.json` da coleta — por isso a tela tem latência de rede e
+carrega ao abrir (e ao trocar o período). Traz:
+
+- **Cards de resumo**: dias ativos, uso médio/dia, dia de pico, maior uso, origem
+  e modelo predominantes.
+- **Visão Geral**: gráfico de barras do uso total por dia.
+- **Origens**: barras empilhadas por *product surface* (CLI, VS Code, Web,
+  JetBrains, SDK, GitHub…), com legenda.
+- **Modelos**: barras empilhadas por modelo (ex.: GPT-5.5), com legenda.
+- Seletor de período **30d/7d** (refaz a chamada à API).
+
+Os dados vêm do comando `get_codex_stats` (que faz a chamada de rede no backend
+Rust). A unidade é percentual de uso diário (não tokens absolutos).
 
 ### Configurações
 
@@ -444,11 +463,12 @@ Codex:
 index.html            # janela principal do app (menu lateral + secoes)
 widget.html           # janela do widget flutuante da area de trabalho
 src/
-  main.ts             # shell: navegacao entre Envio de dados, Uso atual, Dashboard Claude e Configuracoes
+  main.ts             # shell: navegacao entre Envio de dados, Uso atual, Dashboards e Configuracoes
   envio.ts            # tela "Envio de dados" (pausa/envio por provedor, historico)
   usage.ts            # tela "Uso atual" (consome get_usage/force_collect)
   usage-format.ts     # helpers de formatacao/icones compartilhados (uso, reset, cores)
   dashboard.ts        # dashboard de uso do Claude Code (consome get_stats)
+  codex-dashboard.ts  # dashboard de uso do Codex (consome get_codex_stats)
   settings.ts         # configuracoes com abas e auto-save (consome get_settings/save_settings)
   widget.ts           # widget da area de trabalho (consome get_widget_state)
   styles.css
@@ -460,7 +480,8 @@ src-tauri/
                        #  get_widget_state/read_widget_background/pick_widget_background/
                        #  get_envio_state/set_envio_paused/set_envio_provider/envio_send_now/clear_send_log)
     main.rs
-    usage_dashboard.rs # coleta as estatisticas do dashboard
+    usage_dashboard.rs # coleta as estatisticas do dashboard (Claude, arquivos locais)
+    codex_dashboard.rs # historico diario de uso do Codex (API wham, get_codex_stats)
     taskbar_widget.rs  # widget da barra de tarefas (somente Windows)
   tauri.conf.json
   tauri.windows.conf.json
