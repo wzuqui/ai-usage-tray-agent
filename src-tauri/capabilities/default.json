@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window and the desktop widget",
-  "windows": ["main", "widget"],
+  "description": "Capability for the main window, the desktop widget and the update window",
+  "windows": ["main", "widget", "update"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "core:window:allow-set-size"
+    "core:window:allow-set-size",
+    "core:window:allow-close"
   ]
 }

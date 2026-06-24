@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title>Atualização disponível</title>
+    <script type="module" src="/src/update.ts" defer></script>
+  </head>
+
+  <body class="upd-body">
+    <main class="upd">
+      <header class="upd-head">
+        <h1>Atualização disponível <span class="spark">↑</span></h1>
+        <p class="upd-versions" id="upd-versions">—</p>
+      </header>
+
+      <section class="upd-notes" id="upd-notes" aria-label="Novidades desta versão">
+        <p class="foot">Carregando novidades…</p>
+      </section>
+
+      <div class="upd-progress hide" id="upd-progress">
+        <div class="upd-bar"><div class="upd-bar-fill" id="upd-bar-fill"></div></div>
+        <span class="foot" id="upd-progress-label"></span>
+      </div>
+
+      <footer class="upd-actions">
+        <span class="foot upd-status" id="upd-status"></span>
+        <button type="button" class="btn" id="upd-later">Agora não</button>
+        <button type="button" class="btn btn-primary" id="upd-install">Atualizar agora</button>
+      </footer>
+    </main>
+  </body>
+</html>

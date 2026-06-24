@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, OnceLock,
     },
     thread,
@@ -26,7 +26,7 @@ use serde_json::{json, Value};
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -316,6 +316,18 @@ struct SendLogEntry {
 /// Quantas entradas de envio manter no anel em memoria.
 const SEND_LOG_MAX: usize = 50;
 
+/// Dados da atualizacao disponivel detectada por `check_for_updates`, consumidos
+/// pela janela de novidades (`update.html`) via `get_pending_update`. Guardamos
+/// so' strings (nao o objeto `Update`, pesado): a instalacao re-verifica.
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PendingUpdate {
+    app_name: String,
+    current_version: String,
+    new_version: String,
+    notes: String,
+}
+
 struct SharedState {
     snapshot: Mutex<RuntimeSnapshot>,
     cycle_lock: Mutex<()>,
@@ -326,6 +338,8 @@ struct SharedState {
     /// Ha' uma coleta forcada ("Atualizar agora") em andamento. Coalesce cliques
     /// repetidos para nao empilhar varios ciclos no `cycle_lock`.
     force_pending: AtomicBool,
+    /// Ultima atualizacao detectada, exibida pela janela `update.html`.
+    pending_update: Mutex<Option<PendingUpdate>>,
 }
 
 /// Trava o snapshot recuperando de um eventual envenenamento do Mutex (panic
@@ -445,7 +459,7 @@ pub fn run() {
             // A janela `main` fica de fora (negada) e continua centralizando sob
             // demanda.
             tauri_plugin_window_state::Builder::default()
-                .with_denylist(&["main"])
+                .with_denylist(&["main", "update"])
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::POSITION
                         | tauri_plugin_window_state::StateFlags::SIZE,
@@ -468,7 +482,9 @@ pub fn run() {
             set_envio_provider,
             envio_send_now,
             clear_send_log,
-            check_updates_now
+            check_updates_now,
+            get_pending_update,
+            install_update
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
@@ -497,6 +513,7 @@ pub fn run() {
                 stop: AtomicBool::new(false),
                 manual_pending: AtomicBool::new(false),
                 force_pending: AtomicBool::new(false),
+                pending_update: Mutex::new(None),
             });
 
             app.manage(paths.clone());
@@ -2000,36 +2017,24 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
 
     match updater.check().await {
         Ok(Some(update)) => {
-            let current = update.current_version.clone();
-            let version = update.version.clone();
-            let proceed = app
-                .dialog()
-                .message(format!(
-                    "Há uma nova versão do {app_name} disponível.\n\nVersão atual: {current}\nNova versão: {version}\n\nDeseja baixar e instalar agora? O app será reiniciado ao concluir."
-                ))
-                .title(app_name.as_str())
-                .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Atualizar".to_string(),
-                    "Agora não".to_string(),
-                ))
-                .blocking_show();
-
-            if !proceed {
-                return;
+            // Guarda os dados da versao (incluindo o changelog em `update.body`,
+            // que vem do campo `notes` do manifesto) e abre a janela de novidades.
+            // A instalacao em si roda no comando `install_update` (botao da janela),
+            // que re-verifica antes de baixar — por isso nao seguramos o `update`.
+            if let Some(shared) = app.try_state::<Arc<SharedState>>() {
+                let pending = PendingUpdate {
+                    app_name: app_name.clone(),
+                    current_version: update.current_version.to_string(),
+                    new_version: update.version.to_string(),
+                    notes: update.body.clone().unwrap_or_default(),
+                };
+                let mut guard = shared
+                    .pending_update
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                *guard = Some(pending);
             }
-
-            match update.download_and_install(|_, _| {}, || {}).await {
-                Ok(_) => {
-                    app.restart();
-                }
-                Err(error) => {
-                    log_error(&app, &format!("Falha ao instalar atualização: {error}"));
-                    notify(
-                        &app,
-                        format!("Falha ao instalar a atualização do {app_name}: {error}"),
-                    );
-                }
-            }
+            show_update_window(&app);
         }
         Ok(None) => {
             if manual {
@@ -2059,6 +2064,106 @@ async fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
 #[tauri::command]
 async fn check_updates_now(app: AppHandle) {
     check_for_updates(app, true).await;
+}
+
+/// Abre (ou foca) a janela de novidades da atualizacao (`update.html`). Os dados
+/// (versoes + changelog) ja' foram guardados em `SharedState.pending_update` por
+/// `check_for_updates`; a janela os busca via `get_pending_update`.
+fn show_update_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("update") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return;
+    }
+
+    let app_name = app
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "AiUsageTrayAgent".to_string());
+    let result = WebviewWindowBuilder::new(app, "update", WebviewUrl::App("update.html".into()))
+        .title(format!("{app_name} — Atualização disponível"))
+        .inner_size(520.0, 560.0)
+        .min_inner_size(420.0, 420.0)
+        .center()
+        .resizable(true)
+        .decorations(true)
+        .build();
+    match result {
+        Ok(window) => {
+            let _ = window.set_focus();
+        }
+        Err(error) => {
+            handle_runtime_error(app, &format!("Falha ao abrir a janela de atualização: {error}"))
+        }
+    }
+}
+
+/// Dados da atualizacao pendente para a janela `update.html`. `None` quando nao
+/// ha' atualizacao detectada (a janela mostra um aviso e desabilita o botao).
+#[tauri::command]
+fn get_pending_update(shared: State<'_, Arc<SharedState>>) -> Option<PendingUpdate> {
+    shared
+        .pending_update
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+/// Acionado pelo botao "Atualizar agora" da janela de novidades. Re-verifica,
+/// baixa e instala a atualizacao, emitindo o progresso (`update-progress`) para a
+/// janela `update`. Ao concluir com sucesso, reinicia o app (a chamada nunca
+/// "retorna" nesse caso). Em falha, retorna a mensagem para a janela exibir.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = app
+        .updater()
+        .map_err(|error| format!("Updater indisponível: {error}"))?;
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => return Err("Nenhuma atualização disponível.".to_string()),
+        Err(error) => return Err(format!("Falha ao verificar atualização: {error}")),
+    };
+
+    // `download_and_install` recebe um `Fn` (nao `FnMut`); acumula os bytes via
+    // atomico compartilhado para emitir o progresso.
+    let downloaded = Arc::new(AtomicU64::new(0));
+    let dl = downloaded.clone();
+    let app_progress = app.clone();
+    let result = update
+        .download_and_install(
+            move |chunk, total| {
+                let acc = dl.fetch_add(chunk as u64, Ordering::Relaxed) + chunk as u64;
+                let _ = app_progress.emit_to(
+                    "update",
+                    "update-progress",
+                    json!({ "downloaded": acc, "total": total }),
+                );
+            },
+            || {},
+        )
+        .await;
+
+    match result {
+        Ok(_) => {
+            app.restart();
+        }
+        Err(error) => {
+            if let Some(paths) = app.try_state::<RuntimePaths>() {
+                let _ = append_log_line(
+                    paths.inner(),
+                    "error",
+                    &format!("Falha ao instalar atualização: {error}"),
+                    None,
+                );
+            }
+            Err(format!("Falha ao instalar a atualização: {error}"))
+        }
+    }
 }
 
 fn build_error_metric(usuario: &str, ferramenta: &str, erro: &str) -> UsageMetric {
