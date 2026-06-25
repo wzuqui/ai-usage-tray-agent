@@ -13,12 +13,15 @@
       <aside class="sidebar">
         <div class="brand">AiUsage</div>
         <nav class="nav">
-          <button type="button" class="nav-item" data-view="envio">Envio de dados</button>
           <button type="button" class="nav-item on" data-view="usage">Uso atual</button>
+          <button type="button" class="nav-item" data-view="envio">Envio de dados</button>
           <button type="button" class="nav-item" data-view="dashboard">Dashboard Claude</button>
           <button type="button" class="nav-item" data-view="codex-dashboard">Dashboard Codex</button>
           <button type="button" class="nav-item" data-view="settings">Configurações</button>
-          <button type="button" class="nav-item" data-view="sobre">Sobre</button>
+          <button type="button" class="nav-item" data-view="sobre">
+            <span>Sobre</span>
+            <span class="nav-update-badge">Atualização disponível</span>
+          </button>
         </nav>
       </aside>
 
@@ -51,7 +54,6 @@
         <!-- ===== Uso atual ===== -->
         <section id="view-usage" class="view on">
           <h1>Uso atual</h1>
-          <p class="sub">Uso de sessão (5h) e semanal (7d) do Claude e do Codex, com o tempo restante e a data/hora do próximo reset.</p>
           <div id="usage-banner"></div>
           <div id="usage-cards"></div>
           <div class="usage-footer">
@@ -62,17 +64,25 @@
 
         <!-- ===== Dashboard ===== -->
         <section id="view-dashboard" class="view">
-          <h1>Uso do Claude Code</h1>
+          <h1>Dashboard Claude</h1>
           <div class="panel">
             <div class="toolbar">
               <div class="tabs">
                 <button id="tab-geral" class="on">Visão Geral</button>
                 <button id="tab-modelos">Modelos</button>
+                <button id="tab-ferramentas">Ferramentas</button>
+                <button id="tab-projetos">Projetos</button>
               </div>
               <div class="ranges">
-                <button data-r="all" class="on">Todos</button>
-                <button data-r="30">30d</button>
+                <button data-r="30" class="on">30d</button>
                 <button data-r="7">7d</button>
+                <button data-r="custom">Personalizado</button>
+                <div class="range-custom hide" id="range-custom">
+                  <input type="date" id="range-from" aria-label="Data inicial" />
+                  <span>até</span>
+                  <input type="date" id="range-to" aria-label="Data final" />
+                  <button type="button" id="range-apply" class="rc-btn rc-apply">Aplicar</button>
+                </div>
               </div>
             </div>
 
@@ -86,15 +96,21 @@
               <div class="legend" id="legend"></div>
             </div>
 
-            <div class="fact" id="fact"></div>
+            <div id="view-ferramentas" class="hide">
+              <div class="ranklist" id="tools-rank"></div>
+            </div>
+
+            <div id="view-projetos" class="hide">
+              <div class="ranklist" id="proj-rank"></div>
+            </div>
+
             <div class="foot" id="foot"></div>
           </div>
         </section>
 
         <!-- ===== Dashboard Codex ===== -->
         <section id="view-codex-dashboard" class="view">
-          <h1>Uso do Codex</h1>
-          <p class="sub">Histórico diário de uso do Codex (em % da cota), por origem e por modelo. Carregado ao abrir a tela.</p>
+          <h1>Dashboard Codex</h1>
           <div class="panel">
             <div class="toolbar">
               <div class="tabs codex-tabs">
@@ -105,6 +121,13 @@
               <div class="ranges codex-ranges">
                 <button data-d="30" class="on">30d</button>
                 <button data-d="7">7d</button>
+                <button data-d="custom">Personalizado</button>
+                <div class="range-custom hide" id="codex-range-custom">
+                  <input type="date" id="codex-range-from" aria-label="Data inicial" />
+                  <span>até</span>
+                  <input type="date" id="codex-range-to" aria-label="Data final" />
+                  <button type="button" id="codex-range-apply" class="rc-btn rc-apply">Aplicar</button>
+                </div>
               </div>
             </div>
 
@@ -124,9 +147,7 @@
           <div class="settings-head">
             <h1>Configurações</h1>
             <span id="settings-msg" class="msg"></span>
-            <button type="button" class="btn" id="settings-reload">Recarregar</button>
           </div>
-          <p class="sub">Salvas no <code>config.json</code> e aplicadas pelo app em ~1s, sem reiniciar.</p>
 
           <div class="panel">
             <div class="tabs settings-tabs">

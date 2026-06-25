@@ -26,6 +26,22 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 
 ## [Não lançado]
 
+### Adicionado
+- Selo **Atualização disponível** no item **Sobre** do menu quando há uma nova versão (verificada ao abrir o app).
+- Dashboard Claude: novas visões **Ferramentas** (ferramentas mais usadas) e **Projetos** (uso por projeto).
+- Dashboard Claude e Dashboard Codex: seletor de **intervalo de datas personalizado** (no Codex, até os últimos 90 dias).
+- Dashboard Codex: indicador de carregamento e mensagem quando não há uso no período selecionado.
+
+### Alterado
+- Menu: **Uso atual** passou a ser o primeiro item, com **Envio de dados** logo abaixo.
+- Dashboard Claude: abre nos **últimos 30 dias** por padrão e as cores do gráfico de modelos ganharam mais contraste.
+- Telas mais limpas em **Uso atual**, **Dashboard Claude**, **Dashboard Codex** e **Configurações** (títulos e rodapés simplificados, sem subtítulos).
+
+### Corrigido
+- O ícone do Codex em **Uso atual** deixava de exibir o fundo ao trocar de tela.
+
+## [0.2.30] - 2026-06-25
+
 ### Corrigido
 - O changelog no aviso de atualização não quebra mais as linhas no meio das frases.
 

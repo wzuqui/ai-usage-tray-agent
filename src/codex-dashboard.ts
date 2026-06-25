@@ -46,12 +46,23 @@ const SURFACE_LABELS: Record<string, string> = {
 };
 
 let DATA: CodexStats | null = null;
-let days = 30; // janela atual (refaz a chamada ao trocar)
+let days = 30; // janela do preset (refaz a chamada ao trocar)
+let customFrom = "";
+let customTo = "";
+let customActive = false; // range personalizado aplicado (envia start/end)
+let customOpen = false; // popover de datas aberto
 let tab = "geral"; // geral | surfaces | modelos
 let loading = false;
 let CHART_SERIES: Series[] = [];
 
+const CUSTOM_LABEL = "Personalizado";
+const MAX_DAYS = 90; // limite da API do Codex
+
 const el = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
+const dkey = (d: Date): string =>
+  d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+// "YYYY-MM-DD" → "DD/MM/AA" (rótulo do botão "Personalizado").
+const fmtShort = (key: string): string => { const [y, m, d] = key.split("-"); return d + "/" + m + "/" + y.slice(2); };
 
 function surfaceLabel(key: string): string {
   return SURFACE_LABELS[key] ?? key;
@@ -213,7 +224,7 @@ function renderChart(series: Series[]): void {
     hl.setAttribute("width", band.getAttribute("width")!);
     hl.setAttribute("height", band.getAttribute("height")!);
     hl.setAttribute("visibility", "visible");
-    tip.innerHTML = '<div class="th">' + dayLabel(s.date) + " — " + pct(dayTotal(s)) + "</div>" +
+    tip.innerHTML = '<div class="th">' + dayLabel(s.date) + "</div>" +
       s.segments.map((seg) => '<div class="tr"><span class="dot" style="background:' + seg.color + '"></span>' +
         escapeHtml(seg.label) + "<b>" + pct(seg.val) + "</b></div>").join("");
     tip.classList.remove("hide");
@@ -236,38 +247,95 @@ function renderChart(series: Series[]): void {
 
 function render(): void {
   if (!DATA) return;
-  const series = buildSeries();
+  el("codex-foot").textContent = "Atualizado " + new Date(DATA.generatedAt).toLocaleTimeString("pt-BR");
+  // A API devolve dias zerados quando não houve uso; mostra um estado vazio
+  // amigável em vez de um gráfico achatado.
+  const hasUsage = DATA.days.some((d) =>
+    (d.models ?? []).some((m) => m.credits > 0) ||
+    Object.values(d.product_surface_usage_values ?? {}).some((v) => v > 0));
   el("codex-view-geral").classList.toggle("hide", tab !== "geral");
+  if (!hasUsage) {
+    renderMessage("Nenhum uso do Codex neste período.");
+    return;
+  }
+  const series = buildSeries();
   if (tab === "geral") renderCards(series);
   renderChart(series);
-  el("codex-foot").textContent =
-    DATA.days.length + " dias · " + days + "d · atualizado " +
-    new Date(DATA.generatedAt).toLocaleTimeString("pt-BR");
+}
+
+// ----- range de data personalizado (popover) -----
+function setCustomOpen(open: boolean): void {
+  customOpen = open;
+  el("codex-range-custom").classList.toggle("hide", !open);
+}
+// Range normalizado (inverte se "de" > "até").
+function customRange(): { from: string; to: string } {
+  let from = customFrom, to = customTo;
+  if (from && to && from > to) [from, to] = [to, from];
+  return { from, to };
+}
+// Pré-preenche os campos (últimos 30 dias) e limita o seletor à janela suportada
+// pelo Codex: dos últimos 90 dias até hoje.
+function prefillCustomInputs(): void {
+  const from = el("codex-range-from") as HTMLInputElement;
+  const to = el("codex-range-to") as HTMLInputElement;
+  const minD = new Date(); minD.setDate(minD.getDate() - (MAX_DAYS - 1));
+  const min = dkey(minD), max = dkey(new Date());
+  from.min = to.min = min;
+  from.max = to.max = max;
+  if (!to.value) to.value = max;
+  if (!from.value) {
+    const d = new Date(); d.setDate(d.getDate() - 29);
+    let f = dkey(d);
+    if (f < min) f = min;
+    from.value = f;
+  }
+}
+function updateApplyState(): void {
+  const from = el("codex-range-from") as HTMLInputElement;
+  const to = el("codex-range-to") as HTMLInputElement;
+  (el("codex-range-apply") as HTMLButtonElement).disabled = !(from.value && to.value);
 }
 
 function setOn(sel: string, target: EventTarget | null): void {
   document.querySelectorAll(sel + " button").forEach((b) => b.classList.toggle("on", b === target));
 }
 
-/// Busca os dados pelo IPC (chamada de rede) e re-renderiza. Mostra um estado de
-/// carregando porque, diferente do Claude, aqui há latência de rede.
+// Skeleton (shimmer) enquanto a chamada de rede não volta — substitui o antigo
+// texto "Carregando…" no rodapé.
+function renderLoading(): void {
+  el("codex-cards").innerHTML = Array.from({ length: 6 }, () =>
+    '<div class="card skel"><div class="skel-line lbl"></div><div class="skel-line val"></div></div>').join("");
+  el("codex-chart").innerHTML = '<div class="codex-skel-chart"></div>';
+  el("codex-legend").innerHTML = "";
+}
+
+// Mensagem ocupando a área do conteúdo (vazio ou erro).
+function renderMessage(text: string, isError = false): void {
+  el("codex-cards").innerHTML = "";
+  el("codex-legend").innerHTML = "";
+  el("codex-chart").innerHTML = '<div class="codex-empty' + (isError ? " err" : "") + '">' + escapeHtml(text) + "</div>";
+}
+
+/// Busca os dados pelo IPC (chamada de rede) e re-renderiza. Mostra um skeleton
+/// durante a chamada porque, diferente do Claude, aqui há latência de rede.
 export async function loadCodexDashboard(): Promise<void> {
   if (loading) return;
   loading = true;
-  el("codex-foot").textContent = "Carregando…";
+  renderLoading();
+  el("codex-foot").textContent = "";
   try {
-    DATA = await invoke<CodexStats>("get_codex_stats", { days });
+    const range = customRange();
+    const args = customActive ? { days, start: range.from, end: range.to } : { days };
+    DATA = await invoke<CodexStats>("get_codex_stats", args);
   } catch (e) {
-    el("codex-foot").textContent = "Falha ao carregar dados: " + (e instanceof Error ? e.message : String(e));
+    renderMessage("Falha ao carregar dados: " + (e instanceof Error ? e.message : String(e)), true);
     return;
   } finally {
     loading = false;
   }
   if (DATA.error) {
-    el("codex-foot").textContent = "Erro: " + DATA.error;
-    el("codex-cards").innerHTML = "";
-    el("codex-chart").innerHTML = "";
-    el("codex-legend").innerHTML = "";
+    renderMessage(DATA.error, true);
     return;
   }
   render();
@@ -283,12 +351,55 @@ export function initCodexDashboard(): void {
   el("codex-tab-geral").onclick = (e) => { tab = "geral"; setOn(".codex-tabs", e.target); render(); };
   el("codex-tab-surfaces").onclick = (e) => { tab = "surfaces"; setOn(".codex-tabs", e.target); render(); };
   el("codex-tab-modelos").onclick = (e) => { tab = "modelos"; setOn(".codex-tabs", e.target); render(); };
+  const customBtn = document.querySelector('.codex-ranges button[data-d="custom"]') as HTMLButtonElement;
+
   document.querySelectorAll(".codex-ranges button").forEach((b) =>
     ((b as HTMLButtonElement).onclick = () => {
-      days = Number((b as HTMLElement).dataset.d) || 30;
+      const d = (b as HTMLElement).dataset.d!;
+      // "Personalizado" só abre/fecha o popover; o filtro vale ao "Aplicar".
+      if (d === "custom") {
+        prefillCustomInputs();
+        updateApplyState();
+        setCustomOpen(!customOpen);
+        return;
+      }
+      // Preset (30d/7d): desaplica o range personalizado e restaura o rótulo.
+      days = Number(d) || 30;
+      customActive = false;
+      customBtn.textContent = CUSTOM_LABEL;
       setOn(".codex-ranges", b);
+      setCustomOpen(false);
       void loadCodexDashboard();
     }));
+
+  const from = el("codex-range-from") as HTMLInputElement;
+  const to = el("codex-range-to") as HTMLInputElement;
+  from.oninput = updateApplyState;
+  to.oninput = updateApplyState;
+
+  (el("codex-range-apply") as HTMLButtonElement).onclick = () => {
+    if (!(from.value && to.value)) return;
+    customFrom = from.value;
+    customTo = to.value;
+    customActive = true;
+    const { from: f, to: t } = customRange();
+    customBtn.textContent = fmtShort(f) + " – " + fmtShort(t);
+    setOn(".codex-ranges", customBtn);
+    setCustomOpen(false);
+    void loadCodexDashboard();
+  };
+
+  // Fecha o popover ao clicar fora (exceto no botão "Personalizado") ou com Esc.
+  document.addEventListener("mousedown", (e) => {
+    if (!customOpen) return;
+    const t = e.target as Node;
+    const pop = el("codex-range-custom");
+    if (pop.contains(t) || customBtn.contains(t)) return;
+    setCustomOpen(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && customOpen) setCustomOpen(false);
+  });
 
   void loadCodexDashboard();
 }

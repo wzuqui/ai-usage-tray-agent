@@ -31,6 +31,12 @@ struct ModelTotals {
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
+struct ProjStats {
+    msgs: u64,
+    tokens: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
 struct DayStats {
     msgs: u64,
     #[serde(rename = "userMsgs")]
@@ -38,6 +44,11 @@ struct DayStats {
     tools: u64,
     sessions: u64,
     models: HashMap<String, ModelTotals>,
+    // Contagem de tool_use por nome (Edit, Read, Bash…) e uso por projeto (basename
+    // do cwd). Só populados a partir dos transcripts vivos — o baseline não os tem.
+    #[serde(rename = "toolsByName")]
+    tools_by_name: HashMap<String, u64>,
+    projects: HashMap<String, ProjStats>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -87,6 +98,13 @@ fn parse_transcript(text: &str) -> FileAgg {
             continue;
         };
 
+        // Projeto = basename do cwd (ex.: "C:\...\ai-usage-tray-agent" → "ai-usage-tray-agent").
+        let proj = o
+            .get("cwd")
+            .and_then(Value::as_str)
+            .and_then(|c| c.rsplit(|ch: char| ch == '\\' || ch == '/').find(|s| !s.is_empty()))
+            .map(|s| s.to_string());
+
         if let Some(session_id) = o.get("sessionId").and_then(Value::as_str) {
             let is_sidechain = o.get("isSidechain").and_then(Value::as_bool).unwrap_or(false);
             if !is_sidechain {
@@ -113,15 +131,25 @@ fn parse_transcript(text: &str) -> FileAgg {
                 let day = agg.days.entry(date).or_default();
                 day.msgs += 1;
                 day.user_msgs += 1;
+                if let Some(p) = &proj {
+                    day.projects.entry(p.clone()).or_default().msgs += 1;
+                }
             }
         } else {
             let day = agg.days.entry(date).or_default();
             day.msgs += 1;
+            if let Some(p) = &proj {
+                day.projects.entry(p.clone()).or_default().msgs += 1;
+            }
             if let Some(items) = content {
-                day.tools += items
-                    .iter()
-                    .filter(|c| c.get("type").and_then(Value::as_str) == Some("tool_use"))
-                    .count() as u64;
+                for c in items {
+                    if c.get("type").and_then(Value::as_str) == Some("tool_use") {
+                        day.tools += 1;
+                        if let Some(name) = c.get("name").and_then(Value::as_str) {
+                            *day.tools_by_name.entry(name.to_string()).or_default() += 1;
+                        }
+                    }
+                }
             }
 
             let usage = message.and_then(|m| m.get("usage"));
@@ -129,9 +157,14 @@ fn parse_transcript(text: &str) -> FileAgg {
             if let (Some(usage), Some(model)) = (usage, model) {
                 if !model.starts_with('<') {
                     let read = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+                    let it = read("input_tokens");
+                    let ot = read("output_tokens");
+                    if let Some(p) = &proj {
+                        day.projects.entry(p.clone()).or_default().tokens += it + ot;
+                    }
                     let totals = day.models.entry(model.to_string()).or_default();
-                    totals.input += read("input_tokens");
-                    totals.out += read("output_tokens");
+                    totals.input += it;
+                    totals.out += ot;
                     totals.cache_read += read("cache_read_input_tokens");
                     totals.cache_create += read("cache_creation_input_tokens");
                 }
@@ -300,6 +333,14 @@ fn collect_stats() -> Value {
                         acc.out += totals.out;
                         acc.cache_read += totals.cache_read;
                         acc.cache_create += totals.cache_create;
+                    }
+                    for (name, count) in &src.tools_by_name {
+                        *day.tools_by_name.entry(name.clone()).or_default() += count;
+                    }
+                    for (name, proj) in &src.projects {
+                        let acc = day.projects.entry(name.clone()).or_default();
+                        acc.msgs += proj.msgs;
+                        acc.tokens += proj.tokens;
                     }
                 }
                 for (session_id, ts) in &entry.agg.sessions {

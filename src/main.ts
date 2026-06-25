@@ -6,6 +6,7 @@ import { initDashboard, loadDashboard } from "./dashboard";
 import { initEnvio, loadEnvio } from "./envio";
 import { initSettings } from "./settings";
 import { initSobre } from "./sobre";
+import { checkUpdateStatus } from "./update-status";
 import { initUsage, loadUsage } from "./usage";
 
 function activate(view: string): void {
@@ -35,3 +36,8 @@ window.addEventListener("focus", () => {
 });
 
 initUsage();
+
+// Ao abrir a janela, verifica atualização (uma vez) — se houver, o item "Sobre"
+// do menu ganha o badge "Atualização disponível". A tela "Sobre" reaproveita
+// esse resultado (não re-verifica ao abrir).
+void checkUpdateStatus();

@@ -7,7 +7,7 @@
 // `set_envio_paused`, `set_envio_provider`, `envio_send_now` e `clear_send_log`.
 // O estado da pausa é sincronizado com o menu do tray (mesma fonte no backend).
 import { invoke } from "@tauri-apps/api/core";
-import { ICON_CLAUDE, ICON_CODEX, escapeHtml } from "./usage-format";
+import { ICON_CLAUDE, iconCodex, escapeHtml } from "./usage-format";
 
 interface ProviderEnvio {
   habilitado: boolean;
@@ -66,7 +66,7 @@ function fmtLogTime(iso: string): string {
 }
 
 const iconFor = (ferramenta: string): string =>
-  ferramenta === "codex" ? ICON_CODEX : ICON_CLAUDE;
+  ferramenta === "codex" ? iconCodex() : ICON_CLAUDE;
 const nameFor = (ferramenta: string): string =>
   ferramenta === "codex" ? "Codex" : "Claude";
 

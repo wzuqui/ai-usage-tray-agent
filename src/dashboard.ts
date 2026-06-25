@@ -11,6 +11,10 @@ interface ModelTotals {
   cacheRead: number;
   cacheCreate: number;
 }
+interface ProjStats {
+  msgs: number;
+  tokens: number;
+}
 interface DayStats {
   date: string;
   msgs: number;
@@ -18,6 +22,8 @@ interface DayStats {
   tools: number;
   sessions: number;
   models: Record<string, ModelTotals>;
+  toolsByName?: Record<string, number>;
+  projects?: Record<string, ProjStats>;
 }
 interface SessionEntry {
   date: string;
@@ -49,16 +55,17 @@ interface ChartSeries {
   rows: { name: string; color: string; val: number }[];
 }
 
-const PALETTE = ["#2f6fed", "#5b8df2", "#86abf6", "#aec7f9", "#d3e0fc", "#8b949e", "#6e7681"];
+// Paleta categórica de matizes distintos (azul, terracota, verde, roxo, âmbar,
+// ciano, rosa, cinza) — antes era um degradê de azul, com pouco contraste entre
+// modelos adjacentes no gráfico empilhado.
+const PALETTE = ["#4c8dff", "#e0816f", "#7fc99a", "#c9a0f0", "#e6c34a", "#5bd1d4", "#f08fb0", "#9aa0a6"];
 const MONTHS = ["jan.", "fev.", "mar.", "abr.", "mai.", "jun.", "jul.", "ago.", "set.", "out.", "nov.", "dez."];
-const BOOKS: [string, number][] = [
-  ["Animal Farm", 39000], ["O Grande Gatsby", 64000], ["Dom Casmurro", 90000],
-  ["1984", 118000], ["O Hobbit", 125000], ["Harry Potter e a Pedra Filosofal", 105000],
-  ["O Senhor dos Anéis", 594000], ["Guerra e Paz", 750000], ["a Bíblia inteira", 1000000],
-];
 
 let DATA: Stats | null = null;
-let range = "all";
+let range = "30";
+let customFrom = "";
+let customTo = "";
+let customOpen = false; // popover de datas aberto (independe do range aplicado)
 let tab = "geral";
 let CHART_SERIES: ChartSeries[] = [];
 
@@ -92,11 +99,30 @@ function dayLabel(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
   return d.getDate() + " de " + MONTHS[d.getMonth()];
 }
+// "YYYY-MM-DD" → "DD/MM/AA" (usado no rótulo do botão "Personalizado").
+function fmtShort(key: string): string {
+  const [y, m, d] = key.split("-");
+  return d + "/" + m + "/" + y.slice(2);
+}
+const CUSTOM_LABEL = "Personalizado";
+
+// Range personalizado normalizado (inverte se "de" > "até"); strings vazias =
+// limite aberto.
+function customRange(): { from: string; to: string } {
+  let from = customFrom;
+  let to = customTo;
+  if (from && to && from > to) [from, to] = [to, from];
+  return { from, to };
+}
 
 function filtered(): { days: DayStats[]; sessions: SessionEntry[] } {
   let days = DATA!.days;
   let sessions = DATA!.sessions;
-  if (range !== "all") {
+  if (range === "custom") {
+    const { from, to } = customRange();
+    if (from) { days = days.filter((d) => d.date >= from); sessions = sessions.filter((s) => s.date >= from); }
+    if (to) { days = days.filter((d) => d.date <= to); sessions = sessions.filter((s) => s.date <= to); }
+  } else {
     const cut = new Date();
     cut.setDate(cut.getDate() - (Number(range) - 1));
     const cutKey = dkey(cut);
@@ -141,9 +167,6 @@ function renderCards(days: DayStats[], sessions: SessionEntry[]): void {
   const st = streaks(days);
   const hours: Record<string, number> = {};
   for (const s of sessions) if (s.hour !== null) hours[s.hour] = (hours[s.hour] ?? 0) + 1;
-  if (range === "all" && DATA!.baseline) {
-    for (const [h, c] of Object.entries(DATA!.baseline.hourCounts)) hours[h] = (hours[h] ?? 0) + c;
-  }
   const peak = Object.entries(hours).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "–";
   const cards: [string, string][] = [
     ["Sessões", int(sessions.length)],
@@ -158,13 +181,6 @@ function renderCards(days: DayStats[], sessions: SessionEntry[]): void {
   el("cards").innerHTML = cards
     .map(([l, v]) => '<div class="card"><div class="lbl">' + l + '</div><div class="val">' + v + "</div></div>")
     .join("");
-
-  const fact = el("fact");
-  const opts = BOOKS.filter((b) => totalTokens / b[1] >= 2);
-  if (opts.length) {
-    const [name, tok] = opts[Math.floor(Math.random() * opts.length)];
-    fact.textContent = "Você usou ~" + Math.round(totalTokens / tok) + "× mais tokens do que " + name + ".";
-  } else fact.textContent = "";
 }
 
 function heatColor(v: number, max: number): string {
@@ -210,8 +226,11 @@ function renderChart(days: DayStats[]): void {
   const models = modelTotals(days);
   const color = new Map(models.map((m, i) => [m.model, PALETTE[i % PALETTE.length]]));
   const W = 820, H = 260, padL = 52, padB = 26, padT = 10;
-  const end = new Date(dkey(new Date()) + "T12:00:00"); // hoje ao meio-dia: garante a barra do dia atual
-  const start = new Date((days[0]?.date ?? dkey(end)) + "T12:00:00");
+  // Span do eixo X: no range personalizado, fim/início = datas escolhidas; nos
+  // presets, fim = hoje (garante a barra do dia atual) e início = 1º dia com dados.
+  const cr = range === "custom" ? customRange() : { from: "", to: "" };
+  const end = new Date((cr.to || dkey(new Date())) + "T12:00:00");
+  const start = new Date((cr.from || days[0]?.date || dkey(end)) + "T12:00:00");
   const series: { date: string; models: Record<string, ModelTotals> }[] = [];
   const byDate = new Map(days.map((d) => [d.date, d]));
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -300,18 +319,60 @@ function renderChart(days: DayStats[]): void {
   ).join("");
 }
 
+// Abre/fecha o popover de datas (só a visibilidade; o range aplicado continua).
+function setCustomOpen(open: boolean): void {
+  customOpen = open;
+  el("range-custom").classList.toggle("hide", !open);
+}
+
+// Uma linha do ranking horizontal (rótulo · barra proporcional · valor).
+function rankRow(label: string, val: number, max: number, i: number, valText: string): string {
+  const pct = ((val / max) * 100).toFixed(1);
+  const color = PALETTE[i % PALETTE.length];
+  return '<div class="rrow"><div class="rlabel" title="' + escapeHtml(label) + '">' + escapeHtml(label) +
+    '</div><div class="rbar"><span style="width:' + pct + "%;background:" + color + '"></span></div>' +
+    '<div class="rval">' + valText + "</div></div>";
+}
+
+const EMPTY_NOTE =
+  '<div class="rank-empty">Sem dados no período (esta visão usa só os transcripts dos últimos ~30 dias).</div>';
+
+function renderTools(days: DayStats[]): void {
+  const totals: Record<string, number> = {};
+  for (const d of days) for (const [name, c] of Object.entries(d.toolsByName ?? {})) totals[name] = (totals[name] ?? 0) + c;
+  const rows = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...rows.map((r) => r[1]));
+  el("tools-rank").innerHTML = rows.length
+    ? rows.map(([name, c], i) => rankRow(name, c, max, i, int(c))).join("")
+    : EMPTY_NOTE;
+}
+
+function renderProjects(days: DayStats[]): void {
+  const totals: Record<string, ProjStats> = {};
+  for (const d of days) for (const [name, v] of Object.entries(d.projects ?? {})) {
+    const acc = (totals[name] ??= { msgs: 0, tokens: 0 });
+    acc.msgs += v.msgs; acc.tokens += v.tokens;
+  }
+  const rows = Object.entries(totals).sort((a, b) => b[1].tokens - a[1].tokens);
+  const max = Math.max(1, ...rows.map((r) => r[1].tokens));
+  el("proj-rank").innerHTML = rows.length
+    ? rows.map(([name, v], i) => rankRow(name, v.tokens, max, i, abbr(v.tokens) + " · " + int(v.msgs) + " msgs")).join("")
+    : EMPTY_NOTE;
+}
+
 function render(): void {
   if (!DATA) return;
+  el("range-custom").classList.toggle("hide", !customOpen);
   const f = filtered();
   el("view-geral").classList.toggle("hide", tab !== "geral");
   el("view-modelos").classList.toggle("hide", tab !== "modelos");
-  el("fact").classList.toggle("hide", tab !== "geral");
+  el("view-ferramentas").classList.toggle("hide", tab !== "ferramentas");
+  el("view-projetos").classList.toggle("hide", tab !== "projetos");
   if (tab === "geral") { renderCards(f.days, f.sessions); renderHeat(f.days); }
-  else renderChart(f.days);
-  el("foot").textContent =
-    DATA.files + " transcripts + stats-cache até " + (DATA.baseline?.lastComputedDate ?? "–") +
-    " · " + DATA.reparsed + " re-parseados · " + DATA.parseMs + " ms · atualizado " +
-    new Date(DATA.generatedAt).toLocaleTimeString("pt-BR");
+  else if (tab === "modelos") renderChart(f.days);
+  else if (tab === "ferramentas") renderTools(f.days);
+  else if (tab === "projetos") renderProjects(f.days);
+  el("foot").textContent = "Atualizado " + new Date(DATA.generatedAt).toLocaleTimeString("pt-BR");
 }
 
 function setOn(sel: string, target: EventTarget | null): void {
@@ -334,6 +395,33 @@ export async function loadDashboard(): Promise<void> {
   render();
 }
 
+// Pré-preenche os campos do popover (últimos 30 dias) quando vazios — só os
+// VALORES dos inputs; nada é filtrado até clicar em "Aplicar". Também limita o
+// seletor ao intervalo com dados: do dia mais antigo disponível até hoje.
+function prefillCustomInputs(): void {
+  const from = el("range-from") as HTMLInputElement;
+  const to = el("range-to") as HTMLInputElement;
+  const min = DATA?.days[0]?.date ?? "";
+  const max = dkey(new Date());
+  from.min = to.min = min;
+  from.max = to.max = max;
+  if (!to.value) to.value = max;
+  if (!from.value) {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    let f = dkey(d);
+    if (min && f < min) f = min; // não sugerir antes do 1º dia com dados
+    from.value = f;
+  }
+}
+
+// "Aplicar" só habilita com as duas datas preenchidas.
+function updateApplyState(): void {
+  const from = el("range-from") as HTMLInputElement;
+  const to = el("range-to") as HTMLInputElement;
+  (el("range-apply") as HTMLButtonElement).disabled = !(from.value && to.value);
+}
+
 let initialized = false;
 
 /// Liga os eventos da view do dashboard (uma vez) e dispara o primeiro load.
@@ -343,8 +431,59 @@ export function initDashboard(): void {
 
   el("tab-geral").onclick = (e) => { tab = "geral"; setOn(".tabs", e.target); render(); };
   el("tab-modelos").onclick = (e) => { tab = "modelos"; setOn(".tabs", e.target); render(); };
+  el("tab-ferramentas").onclick = (e) => { tab = "ferramentas"; setOn(".tabs", e.target); render(); };
+  el("tab-projetos").onclick = (e) => { tab = "projetos"; setOn(".tabs", e.target); render(); };
+  const customBtn = document.querySelector('.ranges button[data-r="custom"]') as HTMLButtonElement;
+
   document.querySelectorAll(".ranges button").forEach((b) =>
-    (b as HTMLButtonElement).onclick = () => { range = (b as HTMLElement).dataset.r!; setOn(".ranges", b); render(); });
+    (b as HTMLButtonElement).onclick = () => {
+      const r = (b as HTMLElement).dataset.r!;
+      // "Personalizado" só abre/fecha o popover; o filtro só vale ao "Aplicar".
+      if (r === "custom") {
+        prefillCustomInputs();
+        updateApplyState();
+        setCustomOpen(!customOpen);
+        return;
+      }
+      // Preset (30d/7d): "desaplica" o range personalizado e restaura o rótulo.
+      range = r;
+      customBtn.textContent = CUSTOM_LABEL;
+      setOn(".ranges", b);
+      setCustomOpen(false);
+      render();
+    });
+
+  const from = el("range-from") as HTMLInputElement;
+  const to = el("range-to") as HTMLInputElement;
+  from.oninput = updateApplyState;
+  to.oninput = updateApplyState;
+
+  (el("range-apply") as HTMLButtonElement).onclick = () => {
+    if (!(from.value && to.value)) return;
+    customFrom = from.value;
+    customTo = to.value;
+    range = "custom";
+    // O botão "Personalizado" passa a exibir o range escolhido.
+    const { from: f, to: t } = customRange();
+    customBtn.textContent = fmtShort(f) + " – " + fmtShort(t);
+    setOn(".ranges", customBtn);
+    setCustomOpen(false);
+    render();
+  };
+
+  // Fecha o popover ao clicar fora (exceto no próprio botão "Personalizado") ou
+  // ao apertar Esc. O range escolhido permanece aplicado.
+  document.addEventListener("mousedown", (e) => {
+    if (!customOpen) return;
+    const t = e.target as Node;
+    const pop = el("range-custom");
+    const btn = document.querySelector('.ranges button[data-r="custom"]');
+    if (pop.contains(t) || btn?.contains(t)) return;
+    setCustomOpen(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && customOpen) setCustomOpen(false);
+  });
 
   const heat = el("heat");
   const pill = el("pill");

@@ -194,9 +194,14 @@ rede); `force_collect` força um ciclo novo.
 ### Dashboard Claude
 
 Replica o painel de uso do Claude Code lendo as mesmas fontes locais
-(`~/.claude/projects/**/*.jsonl` e `~/.claude/stats-cache.json`): cards de
-resumo, heatmap de atividade e gráfico de tokens por modelo. Os dados vêm do
-comando `get_stats` e são recarregados ao reabrir a janela.
+(`~/.claude/projects/**/*.jsonl` e `~/.claude/stats-cache.json`). Tem abas:
+**Visão Geral** (cards de resumo + heatmap de atividade), **Modelos** (gráfico de
+tokens por modelo), **Ferramentas** (ranking das ferramentas mais usadas) e
+**Projetos** (uso por projeto). Há um seletor de período **30d/7d** ou
+**personalizado** (intervalo de datas, limitado ao período com dados); o padrão é
+**30d**. As abas Ferramentas e Projetos dependem dos transcripts vivos (~30 dias),
+então só enxergam esse período. Os dados vêm do comando `get_stats` e são
+recarregados ao reabrir a janela.
 
 ### Dashboard Codex
 
@@ -212,7 +217,10 @@ carrega ao abrir (e ao trocar o período). Traz:
 - **Origens**: barras empilhadas por *product surface* (CLI, VS Code, Web,
   JetBrains, SDK, GitHub…), com legenda.
 - **Modelos**: barras empilhadas por modelo (ex.: GPT-5.5), com legenda.
-- Seletor de período **30d/7d** (refaz a chamada à API).
+- Seletor de período **30d/7d** ou **personalizado** (intervalo de datas até os
+  últimos 90 dias, limite da API); cada troca refaz a chamada.
+- Indicador de carregamento (a tela depende de rede) e mensagem quando não há uso
+  no período.
 
 Os dados vêm do comando `get_codex_stats` (que faz a chamada de rede no backend
 Rust). A unidade é percentual de uso diário (não tokens absolutos).
@@ -239,18 +247,19 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
 Não há botão "Salvar": as alterações têm **auto-save** (com debounce) — qualquer
 mudança grava o `config.json` sozinha (com normalização: clamp de intervalo/fonte,
 validação de cor) e o app aplica tudo em ~1s, **sem reiniciar e sem disparar um
-envio extra** ao Loki. O autostart é aplicado na hora. No topo da tela há um botão
-**Recarregar** (geral) para reler os valores do disco.
+envio extra** ao Loki. O autostart é aplicado na hora. Os valores são relidos do
+disco ao reabrir a tela.
 
 ### Sobre
 
 Tela dedicada (última opção do menu lateral). Mostra:
 
 - **Versão instalada** do app.
-- **Atualização**: ao abrir, verifica automaticamente (via `check_update_status`,
-  sem diálogo). Havendo nova versão, mostra **Atualizar agora** (abre a janela de
-  novidades, com o *delta* + barra de progresso); senão, **Buscar atualizações**
-  (re-checa inline). Substitui um botão pelo outro.
+- **Atualização**: a verificação acontece **ao abrir o app**; havendo nova versão,
+  o item **Sobre** do menu ganha o selo **Atualização disponível**. A tela Sobre
+  reaproveita esse resultado (não verifica de novo ao abrir). Havendo update,
+  mostra **Atualizar agora** (abre a janela de novidades, com o *delta* + barra de
+  progresso); senão, **Buscar atualizações** força uma nova verificação inline.
 - **Link do repositório** (abre no navegador via `open_external`).
 - **Novidades**: o histórico de versões lido do `CHANGELOG.md` (via
   `get_changelog`), em uma área de **altura fixa com rolagem**.
@@ -491,7 +500,8 @@ src/
   usage-format.ts     # helpers de formatacao/icones compartilhados (uso, reset, cores)
   dashboard.ts        # dashboard de uso do Claude Code (consome get_stats)
   codex-dashboard.ts  # dashboard de uso do Codex (consome get_codex_stats)
-  sobre.ts            # tela "Sobre" (versao, check_update_status, open_update_window, open_external)
+  sobre.ts            # tela "Sobre" (versao, status de atualizacao via update-status, novidades)
+  update-status.ts    # verifica atualizacao ao abrir o app e liga o selo no item "Sobre" do menu
   novidades.ts        # historico de versoes (Novidades), renderizado na tela Sobre (get_changelog)
   changelog.ts        # parser + renderer de markdown do changelog (compartilhado)
   update.ts           # janela de novidades do OTA (delta de versoes; get_changelog/install_update)

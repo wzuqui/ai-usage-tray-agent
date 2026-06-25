@@ -275,7 +275,6 @@ export function initSettings(): void {
   // um único listener no formulário cobre todos os campos. Setar valores por
   // código (fillForm, picker de cor/fundo) não dispara "change", logo não há laço.
   $("settings-form").addEventListener("change", () => scheduleAutoSave());
-  $("settings-reload").addEventListener("click", () => void loadSettings());
 
   void loadSettings();
 }

@@ -11,7 +11,7 @@ import {
   fmtRemaining,
   fmtTime,
   ICON_CLAUDE,
-  ICON_CODEX,
+  iconCodex,
   pctText,
   type ProviderUsage,
 } from "./usage-format";
@@ -79,7 +79,7 @@ function windowBlock(
 /// de coleta, ou as duas janelas (sessão e semanal). O ícone do cabeçalho é o do
 /// provedor (Claude = spark; Codex = logo do Codex).
 function renderProvider(label: string, prov: ProviderUsage): string {
-  const icon = label === "Codex" ? ICON_CODEX : ICON_CLAUDE;
+  const icon = label === "Codex" ? iconCodex() : ICON_CLAUDE;
   const head = (meta: string) =>
     `<div class="uprov-head"><div class="uprov-name">${icon} ${label}</div><div class="uprov-meta">${meta}</div></div>`;
 

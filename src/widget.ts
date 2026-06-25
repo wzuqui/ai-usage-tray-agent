@@ -12,7 +12,7 @@ import {
   fmtRemaining,
   fmtResetClock,
   ICON_CLAUDE,
-  ICON_CODEX,
+  iconCodex,
   pctText,
   type ProviderUsage,
 } from "./usage-format";
@@ -81,7 +81,7 @@ function renderProvider(
   exact: boolean,
 ): string | null {
   if (!mostra || !prov.habilitado) return null;
-  const icon = label === "Codex" ? ICON_CODEX : ICON_CLAUDE;
+  const icon = label === "Codex" ? iconCodex() : ICON_CLAUDE;
   const head = `<div class="wprov-head">${icon}<span class="wprov-name">${label}</span></div>`;
 
   const m = prov.metric;

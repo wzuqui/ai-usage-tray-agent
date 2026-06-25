@@ -15,7 +15,7 @@
 // definido em lib.rs, que delega para `collect` aqui. A unidade é PERCENTUAL de
 // uso diário (não tokens absolutos), então a UI rotula o eixo como "% de uso".
 
-use chrono::{Duration, Local};
+use chrono::{Duration, Local, NaiveDate};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -49,9 +49,16 @@ struct BreakdownResponse {
 /// Busca o histórico diário de uso do Codex e devolve um `Value` pronto para o
 /// frontend. Em qualquer falha (sem caminho, token ausente/expirado, rede,
 /// status HTTP) retorna `{ "error": "..." }` — a tela mostra a mensagem, igual
-/// ao dashboard do Claude. `days` é o tamanho da janela (ex.: 7 ou 30) e termina
-/// hoje (data local).
-pub fn collect(client: &Client, auth_path: &str, days: u32) -> Value {
+/// ao dashboard do Claude. A janela é `start`..`end` (range personalizado) quando
+/// ambos vêm preenchidos; senão, `days` dias terminando hoje (data local). A API
+/// cobre no máximo ~90 dias, então a janela é limitada a isso.
+pub fn collect(
+    client: &Client,
+    auth_path: &str,
+    days: u32,
+    start: Option<String>,
+    end: Option<String>,
+) -> Value {
     let auth_path = auth_path.trim();
     if auth_path.is_empty() {
         return json!({ "error": "Caminho do auth.json do Codex nao configurado." });
@@ -88,10 +95,29 @@ pub fn collect(client: &Client, auth_path: &str, days: u32) -> Value {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    // Janela: termina hoje (data local) e cobre `days` dias para trás.
-    let days = days.clamp(1, 90);
-    let end = Local::now().date_naive();
-    let start = end - Duration::days(i64::from(days - 1));
+    // Janela: range personalizado (start/end) ou preset (`days` dias até hoje).
+    // Limita a 90 dias (máximo da API) e impede datas futuras.
+    let today = Local::now().date_naive();
+    let parse = |s: &str| NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok();
+    let (start, end) = match (start.as_deref().and_then(parse), end.as_deref().and_then(parse)) {
+        (Some(mut s), Some(mut e)) => {
+            if s > e {
+                std::mem::swap(&mut s, &mut e);
+            }
+            if e > today {
+                e = today;
+            }
+            let max_start = e - Duration::days(89);
+            if s < max_start {
+                s = max_start;
+            }
+            (s, e)
+        }
+        _ => {
+            let days = days.clamp(1, 90);
+            (today - Duration::days(i64::from(days - 1)), today)
+        }
+    };
     let url = format!(
         "https://chatgpt.com/backend-api/wham/usage/daily-token-usage-breakdown?start_date={}&end_date={}&group_by=day",
         start.format("%Y-%m-%d"),
