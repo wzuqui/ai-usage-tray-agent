@@ -26,6 +26,11 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 
 ## [Não lançado]
 
+### Corrigido
+- O botão **Atualizar agora** na tela **Sobre** abria uma janela em branco; agora carrega as novidades normalmente.
+
+## [0.2.31] - 2026-06-25
+
 ### Adicionado
 - Selo **Atualização disponível** no item **Sobre** do menu quando há uma nova versão (verificada ao abrir o app).
 - Dashboard Claude: novas visões **Ferramentas** (ferramentas mais usadas) e **Projetos** (uso por projeto).
