@@ -2152,9 +2152,15 @@ async fn check_update_status(app: AppHandle) -> UpdateStatus {
 
 /// Abre a janela de novidades (`update.html`) a partir dos dados ja' guardados em
 /// `pending_update` (por `check_update_status`/`check_for_updates`). Acionado pelo
-/// botao "Atualizar agora" da aba "Sobre".
+/// botao "Atualizar agora" da tela "Sobre".
+///
+/// `async` de proposito: comandos sincronos rodam na thread principal, e criar a
+/// `WebviewWindow` ali (dentro do comando) trava o event loop — a janela abre mas
+/// o webview nunca carrega (tela branca). Como `async`, o Tauri roda isto fora da
+/// main thread e a criacao da janela e' despachada para o event loop livre (mesmo
+/// caminho do "Buscar atualizacoes" do tray, que ja' funciona por ser async).
 #[tauri::command]
-fn open_update_window(app: AppHandle) {
+async fn open_update_window(app: AppHandle) {
     show_update_window(&app);
 }
 
