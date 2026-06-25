@@ -17,8 +17,8 @@
           <button type="button" class="nav-item on" data-view="usage">Uso atual</button>
           <button type="button" class="nav-item" data-view="dashboard">Dashboard Claude</button>
           <button type="button" class="nav-item" data-view="codex-dashboard">Dashboard Codex</button>
-          <button type="button" class="nav-item" data-view="novidades">Novidades</button>
           <button type="button" class="nav-item" data-view="settings">Configurações</button>
+          <button type="button" class="nav-item" data-view="sobre">Sobre</button>
         </nav>
       </aside>
 
@@ -313,26 +313,35 @@
                   <label class="check"><input type="checkbox" id="set-autostart"><span id="set-autostartLabel">Iniciar com o sistema</span></label>
                   <div class="desc">Inicia o app automaticamente no login.</div>
                 </div>
-                <div class="field">
-                  <div class="desc">Versão instalada: <strong id="set-appVersion">—</strong></div>
-                  <button type="button" class="btn" id="set-checkUpdates">Buscar atualizações</button>
-                  <div class="desc">Verifica se há uma versão mais nova e, se houver, pergunta antes de instalar.</div>
-                </div>
               </div>
+
             </div>
           </div>
         </section>
 
-        <!-- ===== Novidades (changelog) ===== -->
-        <section id="view-novidades" class="view">
-          <div class="settings-head">
-            <h1>Novidades</h1>
-            <span id="nov-msg" class="msg"></span>
-            <button type="button" class="btn" id="nov-reload">Recarregar</button>
-          </div>
-          <p class="sub">Histórico de versões do app, carregado do changelog do projeto.</p>
+        <!-- ===== Sobre ===== -->
+        <section id="view-sobre" class="view">
+          <h1>Sobre</h1>
+          <p class="sub">Informações do app, atualizações e novidades.</p>
           <div class="panel">
-            <div id="nov-content"><div class="loading">Carregando novidades…</div></div>
+            <div class="sobre-head">
+              <div class="sobre-name">AiUsageTrayAgent</div>
+              <div class="sobre-ver">Versão&nbsp;<strong id="sobre-appVersion">—</strong></div>
+            </div>
+            <div class="sobre-update-row">
+              <span id="sobre-update-msg" class="sobre-status">Verificando atualizações…</span>
+              <span class="sobre-actions">
+                <button type="button" class="btn" id="sobre-check">Buscar atualizações</button>
+                <button type="button" class="btn btn-primary hide" id="sobre-update">Atualizar agora</button>
+              </span>
+            </div>
+            <div class="sobre-foot">Repositório:
+              <a href="#" id="sobre-repo" class="link">github.com/wzuqui/ai-usage-tray-agent&nbsp;↗</a>
+            </div>
+          </div>
+          <div class="panel">
+            <h2 class="envio-h2 sobre-nov-title">Novidades</h2>
+            <div id="nov-content" class="sobre-novidades"><div class="loading">Carregando novidades…</div></div>
           </div>
         </section>
       </main>

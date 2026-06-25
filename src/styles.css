@@ -294,3 +294,34 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .cl-entry li { margin: 3px 0; }
 .cl-entry p { margin: 7px 0; }
 .cl-entry code { background: #2a2926; padding: 1px 5px; border-radius: 5px; }
+
+/* ===== Tela "Sobre" (versão/atualização + Novidades) ===== */
+.link { color: #d97757; cursor: pointer; text-decoration: none; }
+.link:hover { text-decoration: underline; }
+/* Cabeçalho: nome do app + versão. */
+.sobre-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sobre-name { font-size: 18px; font-weight: 600; color: #e8e6e1; }
+.sobre-ver { color: #9a968d; font-size: 14px; }
+.sobre-ver strong { color: #e8e6e1; font-variant-numeric: tabular-nums; }
+/* Linha de status da atualização: mensagem à esquerda, ação à direita. */
+.sobre-update-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 16px; border-top: 1px solid #34322d; }
+.sobre-status { font-size: 14px; color: #9a968d; }
+.sobre-status.ok { color: #7fc99a; }
+.sobre-status.avail { color: #d9b78a; font-weight: 600; }
+.sobre-status.err { color: #e0816f; }
+.sobre-actions { display: flex; gap: 8px; flex: none; }
+/* Rodapé: link do repositório, discreto. */
+.sobre-foot { margin-top: 16px; padding-top: 14px; border-top: 1px solid #34322d; font-size: 13px; color: #807c74; }
+.sobre-nov-title { margin: 0 0 12px; font-size: 18px; }
+.sobre-nov-head .envio-h2 { margin: 0; }
+/* Novidades dentro da aba Sobre: altura fixa com rolagem interna. */
+.sobre-novidades {
+  max-height: 300px; overflow-y: auto;
+  background: #1c1b18; border: 1px solid #34322d; border-radius: 10px;
+  padding: 2px 14px 10px;
+}
+.sobre-novidades::-webkit-scrollbar { width: 8px; }
+.sobre-novidades::-webkit-scrollbar-thumb { background: #3a3833; border-radius: 999px; }
+.sobre-novidades::-webkit-scrollbar-thumb:hover { background: #4a473f; }
+.sobre-novidades::-webkit-scrollbar-track { background: transparent; }

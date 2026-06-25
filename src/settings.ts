@@ -94,7 +94,6 @@ function fillForm(data: SettingsData): void {
 
   $<HTMLInputElement>("set-autostart").checked = !!data.autostart;
   if (data.autostartLabel) $("set-autostartLabel").textContent = data.autostartLabel;
-  $("set-appVersion").textContent = data.appVersion ?? "—";
 }
 
 function collect(): SaveSettings {
@@ -277,18 +276,6 @@ export function initSettings(): void {
   // código (fillForm, picker de cor/fundo) não dispara "change", logo não há laço.
   $("settings-form").addEventListener("change", () => scheduleAutoSave());
   $("settings-reload").addEventListener("click", () => void loadSettings());
-
-  // Buscar atualizações: dispara a verificação no backend (mesmo fluxo do tray).
-  // O resultado aparece em diálogo nativo; aqui só damos um feedback imediato.
-  $("set-checkUpdates").addEventListener("click", () => {
-    setMsg("Verificando atualizações…");
-    // O comando só resolve quando o fluxo (verificação + diálogo nativo) termina;
-    // aí limpamos o aviso. O resultado em si aparece no diálogo.
-    void invoke("check_updates_now")
-      .then(() => setMsg(""))
-      .catch((e) =>
-        setMsg("Falha ao verificar atualizações: " + (e instanceof Error ? e.message : String(e)), "err"));
-  });
 
   void loadSettings();
 }

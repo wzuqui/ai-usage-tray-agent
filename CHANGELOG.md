@@ -24,6 +24,16 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 ## [Não lançado]
 
 ### Adicionado
+- Nova tela **Sobre** no menu: versão instalada, verificação de atualização (com
+  **Atualizar agora** quando houver uma nova versão) e as **Novidades**.
+
+### Alterado
+- As **Novidades** deixaram de ser um item próprio do menu e agora ficam dentro da
+  tela **Sobre** (em uma área de altura fixa com rolagem).
+
+## [0.2.28] - 2026-06-25
+
+### Adicionado
 - Nova tela **Novidades**, com o histórico de versões do app.
 
 ### Alterado

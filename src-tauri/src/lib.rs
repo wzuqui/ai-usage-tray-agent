@@ -485,7 +485,10 @@ pub fn run() {
             check_updates_now,
             get_pending_update,
             install_update,
-            get_changelog
+            get_changelog,
+            check_update_status,
+            open_update_window,
+            open_external
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
@@ -2067,6 +2070,82 @@ async fn check_updates_now(app: AppHandle) {
     check_for_updates(app, true).await;
 }
 
+/// Status da verificacao de atualizacao, consumido pela aba "Sobre" das
+/// Configuracoes para decidir a mensagem e qual botao mostrar.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UpdateStatus {
+    available: bool,
+    current_version: String,
+    new_version: Option<String>,
+    error: Option<String>,
+}
+
+/// Verifica se ha atualizacao SEM efeitos colaterais de UI (nao abre janela nem
+/// dialogo) — usado pela aba "Sobre". Quando ha update, guarda os dados em
+/// `pending_update` para o "Atualizar agora" (`open_update_window`) reaproveitar.
+#[tauri::command]
+async fn check_update_status(app: AppHandle) -> UpdateStatus {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let current = app.package_info().version.to_string();
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(error) => {
+            return UpdateStatus {
+                current_version: current,
+                error: Some(format!("Updater indisponível: {error}")),
+                ..Default::default()
+            }
+        }
+    };
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            if let Some(shared) = app.try_state::<Arc<SharedState>>() {
+                let app_name = app
+                    .config()
+                    .product_name
+                    .clone()
+                    .unwrap_or_else(|| "AiUsageTrayAgent".to_string());
+                let pending = PendingUpdate {
+                    app_name,
+                    current_version: update.current_version.to_string(),
+                    new_version: update.version.to_string(),
+                    notes: update.body.clone().unwrap_or_default(),
+                };
+                *shared
+                    .pending_update
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(pending);
+            }
+            UpdateStatus {
+                available: true,
+                current_version: update.current_version.to_string(),
+                new_version: Some(update.version.to_string()),
+                error: None,
+            }
+        }
+        Ok(None) => UpdateStatus {
+            current_version: current,
+            ..Default::default()
+        },
+        Err(error) => UpdateStatus {
+            current_version: current,
+            error: Some(format!("{error}")),
+            ..Default::default()
+        },
+    }
+}
+
+/// Abre a janela de novidades (`update.html`) a partir dos dados ja' guardados em
+/// `pending_update` (por `check_update_status`/`check_for_updates`). Acionado pelo
+/// botao "Atualizar agora" da aba "Sobre".
+#[tauri::command]
+fn open_update_window(app: AppHandle) {
+    show_update_window(&app);
+}
+
 /// Abre (ou foca) a janela de novidades da atualizacao (`update.html`). Os dados
 /// (versoes + changelog) ja' foram guardados em `SharedState.pending_update` por
 /// `check_for_updates`; a janela os busca via `get_pending_update`.
@@ -2499,6 +2578,33 @@ fn open_append_file(path: &Path) -> Result<File, Box<dyn std::error::Error>> {
         .create(true)
         .append(true)
         .open(path)?)
+}
+
+/// Abre uma URL http(s) no navegador padrao do sistema. Usado pelo link do
+/// repositorio na aba "Sobre" (a CSP impede navegar a webview para fora).
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("URL inválida.".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err("Abertura de URL nao suportada neste sistema.".to_string())
 }
 
 fn open_path(path: &Path) -> Result<(), String> {

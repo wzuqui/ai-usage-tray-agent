@@ -4,8 +4,8 @@
 import { initCodexDashboard, loadCodexDashboard } from "./codex-dashboard";
 import { initDashboard, loadDashboard } from "./dashboard";
 import { initEnvio, loadEnvio } from "./envio";
-import { initNovidades } from "./novidades";
 import { initSettings } from "./settings";
+import { initSobre } from "./sobre";
 import { initUsage, loadUsage } from "./usage";
 
 function activate(view: string): void {
@@ -17,8 +17,8 @@ function activate(view: string): void {
   else if (view === "usage") void loadUsage();
   else if (view === "dashboard") initDashboard();
   else if (view === "codex-dashboard") initCodexDashboard();
-  else if (view === "novidades") initNovidades();
   else if (view === "settings") initSettings();
+  else if (view === "sobre") initSobre();
 }
 
 document.querySelectorAll(".nav-item").forEach((b) =>
