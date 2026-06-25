@@ -4,9 +4,11 @@ Todas as alterações relevantes deste projeto são documentadas aqui.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 As releases são geradas automaticamente a cada push no `main`, com versão
-`0.2.<run_number>` (o número da execução do CI). O workflow de release publica,
-como notas da versão (`notes` do `latest.json`), **apenas o conteúdo da seção
-[Não lançado]** — que é o que aparece na janela de "Nova versão disponível" (OTA).
+`0.2.<run_number>` (o número da execução do CI). O próprio **app** lê este
+`CHANGELOG.md` (do `main`) para exibir as novidades: a **janela de atualização**
+(OTA) mostra o *delta* — as novidades de todas as versões entre a instalada e a
+mais nova — e a tela **Novidades** mostra o histórico completo. O campo `notes` do
+`latest.json` não é mais usado para isso (vai vazio).
 
 > **Como manter (cumulativo):**
 > - Acumule as mudanças da próxima versão em **[Não lançado]** — só o que é
@@ -20,6 +22,13 @@ como notas da versão (`notes` do `latest.json`), **apenas o conteúdo da seçã
 >   `0.2.<run_number>` da execução do workflow de release).
 
 ## [Não lançado]
+
+### Adicionado
+- Nova tela **Novidades**, com o histórico de versões do app.
+
+### Alterado
+- Ao atualizar pulando versões, o aviso de atualização agora mostra as novidades de
+  **todas** as versões entre a sua e a mais nova, não só a da versão mais recente.
 
 ## [0.2.26] - 2026-06-24
 

@@ -282,3 +282,15 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .upd-progress .foot { margin-top: 0; white-space: nowrap; }
 .upd-actions { flex: none; display: flex; align-items: center; gap: 10px; }
 .upd-status { flex: 1; margin-top: 0; color: #e0816f; }
+
+/* ===== Entradas de changelog (janela OTA "delta" + tela Novidades) ===== */
+.cl-entry { padding: 2px 0 10px; border-bottom: 1px solid #34322d; }
+.cl-entry:last-child { border-bottom: none; }
+.cl-entry .cl-ver { font-size: 17px; font-weight: 600; color: #e8e6e1; margin: 14px 0 2px; }
+.cl-entry:first-child .cl-ver { margin-top: 4px; }
+.cl-entry .cl-date { color: #807c74; font-size: 13px; font-weight: 400; }
+.cl-entry h4, .cl-entry h5 { color: #d97757; font-size: 13.5px; font-weight: 600; margin: 12px 0 5px; }
+.cl-entry ul { margin: 5px 0; padding-left: 20px; }
+.cl-entry li { margin: 3px 0; }
+.cl-entry p { margin: 7px 0; }
+.cl-entry code { background: #2a2926; padding: 1px 5px; border-radius: 5px; }

@@ -17,6 +17,7 @@
           <button type="button" class="nav-item on" data-view="usage">Uso atual</button>
           <button type="button" class="nav-item" data-view="dashboard">Dashboard Claude</button>
           <button type="button" class="nav-item" data-view="codex-dashboard">Dashboard Codex</button>
+          <button type="button" class="nav-item" data-view="novidades">Novidades</button>
           <button type="button" class="nav-item" data-view="settings">Configurações</button>
         </nav>
       </aside>
@@ -319,6 +320,19 @@
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- ===== Novidades (changelog) ===== -->
+        <section id="view-novidades" class="view">
+          <div class="settings-head">
+            <h1>Novidades</h1>
+            <span id="nov-msg" class="msg"></span>
+            <button type="button" class="btn" id="nov-reload">Recarregar</button>
+          </div>
+          <p class="sub">Histórico de versões do app, carregado do changelog do projeto.</p>
+          <div class="panel">
+            <div id="nov-content"><div class="loading">Carregando novidades…</div></div>
           </div>
         </section>
       </main>

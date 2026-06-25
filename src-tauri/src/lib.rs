@@ -484,7 +484,8 @@ pub fn run() {
             clear_send_log,
             check_updates_now,
             get_pending_update,
-            install_update
+            install_update,
+            get_changelog
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
@@ -2164,6 +2165,36 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
             Err(format!("Falha ao instalar a atualização: {error}"))
         }
     }
+}
+
+/// Busca o `CHANGELOG.md` cru do branch `main` no GitHub. E' a fonte do
+/// changelog exibido no app (janela OTA: "delta" de versoes; tela "Novidades":
+/// historico completo). Feito no backend porque a CSP do webview bloqueia
+/// requisicoes a hosts externos. Roda em `spawn_blocking` (cliente reqwest
+/// bloqueante, como o resto da coleta). Em falha, retorna `Err` e a UI mostra um
+/// aviso (sem impedir a atualizacao).
+#[tauri::command]
+async fn get_changelog() -> Result<String, String> {
+    const URL: &str =
+        "https://raw.githubusercontent.com/wzuqui/ai-usage-tray-agent/main/CHANGELOG.md";
+
+    tauri::async_runtime::spawn_blocking(|| {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|error| error.to_string())?;
+        let response = client
+            .get(URL)
+            .header("User-Agent", "ai-usage-tray-agent")
+            .send()
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("HTTP {}", response.status()));
+        }
+        response.text().map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn build_error_metric(usuario: &str, ferramenta: &str, erro: &str) -> UsageMetric {

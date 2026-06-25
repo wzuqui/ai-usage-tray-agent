@@ -99,11 +99,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout primeiro (limpa o workspace) para ter o CHANGELOG.md disponivel;
-      # o download dos artefatos vai para uma subpasta e nao e' afetado.
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -120,18 +115,10 @@ jobs:
           base="https://github.com/wzuqui/ai-usage-tray-agent/releases/download/main-latest"
           pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-          # Notas da versao: corpo da PRIMEIRA secao "## " do CHANGELOG.md (a
-          # secao "[Nao lancado]"), sem a linha do cabecalho. Apara linhas em
-          # branco no inicio/fim. Fallback para o SHA quando ausente/vazia. Isso
-          # vira o campo `notes` do manifesto -> `update.body` no app.
+          # O campo `notes` nao e' mais a fonte do changelog: o app le o
+          # CHANGELOG.md (do main) e monta o "delta" de versoes. Mantemos o campo
+          # vazio so' para o manifesto ficar valido.
           notes=""
-          if [ -f CHANGELOG.md ]; then
-            notes=$(awk '/^## /{c++; next} c==1{print}' CHANGELOG.md \
-              | awk 'NF{p=1} p' | tac | awk 'NF{p=1} p' | tac)
-          fi
-          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
-            notes="Build automatica do main (${{ github.sha }})."
-          fi
 
           cd dist-release
           platforms='{}'

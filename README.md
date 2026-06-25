@@ -11,7 +11,7 @@ O projeto foi feito com:
 ## O que ele faz
 
 - Inicia no tray sem abrir janela principal para o usuário
-- Tem uma janela nativa (webview) com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex** e **Configurações**
+- Tem uma janela nativa (webview) com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex**, **Novidades** e **Configurações**
 - Coleta uso do Codex e do Claude em intervalo configurável
 - Envia logs estruturados JSON para Loki
 - Mantém logs locais
@@ -27,8 +27,8 @@ Funcional, com:
 - Coleta real do Codex usando `auth.json`
 - Coleta real do Claude usando `organizationId` e `sessionKey`
 - Envio para Loki sem `tenant` e sem `basic auth`
-- Janela do app com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex** e
-  **Configurações** (com abas e **auto-save**)
+- Janela do app com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex**,
+  **Novidades** (changelog) e **Configurações** (com abas e **auto-save**)
 - Widget na barra de tarefas (Windows) e **widget flutuante na área de trabalho**
 - Empacotamento pronto:
   - Windows: instalador `.msi`
@@ -150,7 +150,7 @@ Itens do menu:
 > itens do tray; são editadas nas **Configurações** do app (abas Barra de
 > tarefas e Sistema).
 
-## Janela do app (Envio de dados, Uso atual, Dashboard Claude, Dashboard Codex e Configurações)
+## Janela do app (Envio de dados, Uso atual, Dashboard Claude, Dashboard Codex, Novidades e Configurações)
 
 A interface é uma janela nativa (webview do Tauri), aberta pelo clique esquerdo
 no tray ou pelo item **Abrir**. Não usa navegador nem servidor HTTP local: o
@@ -216,6 +216,16 @@ carrega ao abrir (e ao trocar o período). Traz:
 
 Os dados vêm do comando `get_codex_stats` (que faz a chamada de rede no backend
 Rust). A unidade é percentual de uso diário (não tokens absolutos).
+
+### Novidades
+
+Mostra o **histórico de versões** do app (changelog). O conteúdo é lido do
+`CHANGELOG.md` do projeto pelo comando `get_changelog` (a busca é feita no backend
+Rust, porque a CSP da webview bloqueia hosts externos), e renderizado por versão,
+com data e as mudanças visíveis ao usuário (Adicionado/Alterado/Corrigido…). Tem
+botão **Recarregar** e, sem conexão, exibe um aviso. É a mesma fonte usada pela
+janela de aviso de atualização (que mostra o "delta" — as novidades de todas as
+versões entre a sua e a mais nova).
 
 ### Configurações
 
@@ -409,9 +419,16 @@ Para publicar no GitHub Releases, garanta que o repositório permita `GITHUB_TOK
 
 O app se atualiza sozinho usando o updater oficial do Tauri v2. Ao iniciar, ele
 verifica em segundo plano se há uma versão mais nova publicada na release
-`main-latest` do repositório oficial; havendo, **pergunta** antes de baixar e
-instalar e, ao concluir, reinicia já na versão nova. Também há o item **Buscar
-atualizações** no menu do tray para checar na hora.
+`main-latest` do repositório oficial; havendo, abre uma **janela de novidades**
+que mostra o changelog antes de baixar — o **"delta"**: as novidades de **todas**
+as versões entre a instalada e a mais nova, não só a da versão alvo. O usuário
+**confirma** a instalação (com barra de progresso) e, ao concluir, o app reinicia
+já na versão nova. Também há o item **Buscar atualizações** no menu do tray para
+checar na hora.
+
+O changelog exibido vem do `CHANGELOG.md` do projeto (buscado em runtime), e não
+do campo `notes` do `latest.json` — esse campo agora vai vazio. A mesma fonte
+alimenta a tela **Novidades**.
 
 - Cobre as versões **instaladas**: Windows (`.msi`) e Linux (`AppImage`). A
   verificação compara a versão instalada com a do manifesto.
@@ -462,23 +479,29 @@ Codex:
 ```text
 index.html            # janela principal do app (menu lateral + secoes)
 widget.html           # janela do widget flutuante da area de trabalho
+update.html           # janela de novidades do aviso de atualizacao (OTA)
+CHANGELOG.md          # changelog (fonte das novidades exibidas no app)
 src/
-  main.ts             # shell: navegacao entre Envio de dados, Uso atual, Dashboards e Configuracoes
+  main.ts             # shell: navegacao entre Envio de dados, Uso atual, Dashboards, Novidades e Configuracoes
   envio.ts            # tela "Envio de dados" (pausa/envio por provedor, historico)
   usage.ts            # tela "Uso atual" (consome get_usage/force_collect)
   usage-format.ts     # helpers de formatacao/icones compartilhados (uso, reset, cores)
   dashboard.ts        # dashboard de uso do Claude Code (consome get_stats)
   codex-dashboard.ts  # dashboard de uso do Codex (consome get_codex_stats)
+  novidades.ts        # tela "Novidades" / changelog (consome get_changelog)
+  changelog.ts        # parser + renderer de markdown do changelog (compartilhado)
+  update.ts           # janela de novidades do OTA (delta de versoes; get_changelog/install_update)
   settings.ts         # configuracoes com abas e auto-save (consome get_settings/save_settings)
   widget.ts           # widget da area de trabalho (consome get_widget_state)
   styles.css
 
 src-tauri/
   src/
-    lib.rs             # tray, worker de coleta, janela do widget e comandos IPC
+    lib.rs             # tray, worker de coleta, janela do widget, janela do OTA e comandos IPC
                        # (get_stats/get_settings/save_settings/get_usage/force_collect/
                        #  get_widget_state/read_widget_background/pick_widget_background/
-                       #  get_envio_state/set_envio_paused/set_envio_provider/envio_send_now/clear_send_log)
+                       #  get_envio_state/set_envio_paused/set_envio_provider/envio_send_now/clear_send_log/
+                       #  check_updates_now/get_pending_update/install_update/get_changelog/show_app_menu)
     main.rs
     usage_dashboard.rs # coleta as estatisticas do dashboard (Claude, arquivos locais)
     codex_dashboard.rs # historico diario de uso do Codex (API wham, get_codex_stats)
