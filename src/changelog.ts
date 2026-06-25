@@ -37,43 +37,55 @@ export function renderMarkdown(md: string): string {
   const lines = escapeHtml(md.replace(/\r\n/g, "\n")).split("\n");
   const out: string[] = [];
   let inList = false;
-  let para: string[] = [];
+  // Bloco atual em construção: item de lista ("li") ou parágrafo ("p"). Linhas de
+  // continuação (texto sem marcador) são juntadas ao bloco — é o que faz um item
+  // quebrado em várias linhas no Markdown virar um único <li>.
+  let buf = "";
+  let bufType: "li" | "p" | null = null;
   const closeList = () => {
     if (inList) {
       out.push("</ul>");
       inList = false;
     }
   };
-  const flushPara = () => {
-    if (para.length) {
-      out.push(`<p>${inline(para.join(" "))}</p>`);
-      para = [];
+  const flush = () => {
+    if (bufType === "li") {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${inline(buf)}</li>`);
+    } else if (bufType === "p") {
+      out.push(`<p>${inline(buf)}</p>`);
     }
+    buf = "";
+    bufType = null;
   };
   for (const raw of lines) {
     const line = raw.trim();
     const heading = /^(#{1,4})\s+(.*)$/.exec(line);
     const item = /^[-*]\s+(.*)$/.exec(line);
     if (heading) {
-      flushPara();
+      flush();
       closeList();
       const level = Math.min(heading[1].length + 1, 5);
       out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
     } else if (item) {
-      flushPara();
-      if (!inList) {
-        out.push("<ul>");
-        inList = true;
-      }
-      out.push(`<li>${inline(item[1])}</li>`);
+      flush();
+      buf = item[1];
+      bufType = "li";
     } else if (line === "") {
-      flushPara();
+      flush();
       closeList();
+    } else if (bufType) {
+      // Continuação do item/parágrafo atual (linha quebrada).
+      buf += ` ${line}`;
     } else {
-      para.push(line);
+      buf = line;
+      bufType = "p";
     }
   }
-  flushPara();
+  flush();
   closeList();
   return out.join("\n");
 }

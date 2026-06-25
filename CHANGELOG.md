@@ -20,16 +20,22 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 >   (`## [0.2.<run>] - AAAA-MM-DD`) e recrie uma `[Não lançado]` vazia no topo.
 >   A versão publicada é o campo `version` do `latest.json` da release (ou
 >   `0.2.<run_number>` da execução do workflow de release).
+> - Escreva cada item em **uma única linha** (sem quebra manual): o aviso de
+>   atualização é renderizado pelo app **já instalado** do usuário, e renderers
+>   antigos podem exibir itens multi-linha de forma quebrada.
 
 ## [Não lançado]
 
+### Corrigido
+- O changelog no aviso de atualização não quebra mais as linhas no meio das frases.
+
+## [0.2.29] - 2026-06-25
+
 ### Adicionado
-- Nova tela **Sobre** no menu: versão instalada, verificação de atualização (com
-  **Atualizar agora** quando houver uma nova versão) e as **Novidades**.
+- Nova tela **Sobre** no menu: versão instalada, verificação de atualização (com **Atualizar agora** quando houver uma nova versão) e as **Novidades**.
 
 ### Alterado
-- As **Novidades** deixaram de ser um item próprio do menu e agora ficam dentro da
-  tela **Sobre** (em uma área de altura fixa com rolagem).
+- As **Novidades** deixaram de ser um item próprio do menu e agora ficam dentro da tela **Sobre** (em uma área de altura fixa com rolagem).
 
 ## [0.2.28] - 2026-06-25
 
@@ -37,18 +43,15 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 - Nova tela **Novidades**, com o histórico de versões do app.
 
 ### Alterado
-- Ao atualizar pulando versões, o aviso de atualização agora mostra as novidades de
-  **todas** as versões entre a sua e a mais nova, não só a da versão mais recente.
+- Ao atualizar pulando versões, o aviso de atualização agora mostra as novidades de **todas** as versões entre a sua e a mais nova, não só a da versão mais recente.
 
 ## [0.2.26] - 2026-06-24
 
 ### Adicionado
-- O aviso de nova versão agora mostra as novidades da atualização em uma janela
-  dedicada, com barra de progresso durante o download.
+- O aviso de nova versão agora mostra as novidades da atualização em uma janela dedicada, com barra de progresso durante o download.
 
 ### Alterado
-- As notas de cada versão passam a descrever as novidades de forma legível, em vez
-  de um identificador técnico do build.
+- As notas de cada versão passam a descrever as novidades de forma legível, em vez de um identificador técnico do build.
 
 ## Histórico
 
