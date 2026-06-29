@@ -264,12 +264,14 @@ fn serve_asset(app: &AppHandle, path: &str, request: Request) {
     }
 }
 
-/// Serve o favicon (o mesmo icone do app, embutido no binario). Publico — o
-/// navegador o requisita automaticamente, sem cookie, tanto na tela de login
-/// quanto na SPA. Evita o 404 que deixava a aba sem icone.
+/// Bytes do favicon (o mesmo icone do app), embutidos no binario.
+const FAVICON_ICO: &[u8] = include_bytes!("../icons/icon.ico");
+
+/// Serve o favicon. Publico — o navegador o requisita automaticamente, sem
+/// cookie, tanto na tela de login quanto na SPA. Evita o 404 que deixava a aba
+/// sem icone.
 fn serve_favicon(request: Request) {
-    const ICONE: &[u8] = include_bytes!("../icons/icon.ico");
-    let response = Response::from_data(ICONE.to_vec())
+    let response = Response::from_data(FAVICON_ICO.to_vec())
         .with_header(header("Content-Type", "image/x-icon"))
         .with_header(header("Cache-Control", "public, max-age=86400"));
     let _ = request.respond(response);
@@ -438,4 +440,68 @@ fn login_page(erro: bool) -> String {
 </body>
 </html>"#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Sobe um servidor tiny_http real numa porta efemera roteando so'
+    /// `/favicon.ico` (mesmo caminho do roteador de producao) e faz um GET HTTP
+    /// de verdade, validando status, content-type e os bytes do icone. Prova que a
+    /// rota do favicon serve o icone do app — nao so' que compila.
+    #[test]
+    fn favicon_serve_icone_via_http() {
+        let server = Server::http("127.0.0.1:0").expect("bind efemero");
+        let port = server
+            .server_addr()
+            .to_ip()
+            .expect("addr ip")
+            .port();
+
+        let handle = thread::spawn(move || {
+            if let Ok(Some(request)) = server.recv_timeout(Duration::from_secs(5)) {
+                // Mesmo despacho do roteador real para esse caminho.
+                if request.url() == "/favicon.ico" {
+                    serve_favicon(request);
+                }
+            }
+        });
+
+        let response = reqwest::blocking::get(format!("http://127.0.0.1:{port}/favicon.ico"))
+            .expect("GET /favicon.ico");
+
+        assert!(response.status().is_success(), "status {}", response.status());
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        assert_eq!(content_type, "image/x-icon");
+
+        let bytes = response.bytes().expect("corpo");
+        assert!(!bytes.is_empty(), "favicon vazio");
+        assert_eq!(bytes.as_ref(), FAVICON_ICO, "bytes do favicon batem com o icone");
+
+        handle.join().expect("thread do servidor");
+    }
+
+    /// O favicon embutido nao e' vazio e tem a assinatura de um arquivo .ico
+    /// (cabecalho ICONDIR: reservado=0, tipo=1).
+    #[test]
+    fn favicon_embutido_e_um_ico_valido() {
+        assert!(FAVICON_ICO.len() > 4, "icone curto demais");
+        assert_eq!(&FAVICON_ICO[0..4], &[0x00, 0x00, 0x01, 0x00], "cabecalho .ico");
+    }
+
+    /// Garante o parsing do PIN no corpo do POST de login (form-urlencoded),
+    /// incluindo percent-decoding — o caminho que valida o acesso.
+    #[test]
+    fn extrai_pin_do_corpo_do_login() {
+        assert_eq!(extrair_pin("pin=1234"), "1234");
+        assert_eq!(extrair_pin("pin=12%2034"), "12 34"); // %20 -> espaco
+        assert_eq!(extrair_pin("outro=x&pin=ab9"), "ab9");
+        assert_eq!(extrair_pin("semcampo=1"), "");
+    }
 }
