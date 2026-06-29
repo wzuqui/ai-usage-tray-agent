@@ -1,0 +1,17 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "3c9d56ab395e2b1c8bf28952263cbd8e0613291f",
+  "prompts": {},
+  "sessions": {
+    "s_e16a85d376a5b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb4d868a-b45b-4913-94a7-599855fd7ae7",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Willian Zuqui <willian.zuqui@ravex.com.br>"
+    }
+  }
+}
