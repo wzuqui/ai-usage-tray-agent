@@ -218,11 +218,40 @@ function setMsg(text: string, kind?: "ok" | "err"): void {
   node.className = "msg" + (kind ? " " + kind : "");
 }
 
+// O bloco `envio` (Enviar ao Loki por provedor) NÃO faz parte do save_settings
+// (o backend o preserva relendo do disco). Os toggles nas abas Codex/Claude leem
+// de `get_envio_state` e gravam via `set_envio_provider`, à parte do auto-save.
+interface EnvioToggles {
+  claude: { enviar: boolean };
+  codex: { enviar: boolean };
+}
+
+/// Reflete nos checkboxes "Enviar ao Loki" o estado atual de envio por provedor.
+async function loadEnvioToggles(): Promise<void> {
+  try {
+    const st = await invoke<EnvioToggles>("get_envio_state");
+    $<HTMLInputElement>("set-codexEnviar").checked = !!st.codex?.enviar;
+    $<HTMLInputElement>("set-claudeEnviar").checked = !!st.claude?.enviar;
+  } catch {
+    // transitório; mantém o estado atual dos checkboxes
+  }
+}
+
+/// Persiste o envio de um provedor direto via set_envio_provider.
+async function setEnvioProvider(ferramenta: "codex" | "claude", enviar: boolean): Promise<void> {
+  try {
+    await invoke("set_envio_provider", { ferramenta, enviar });
+  } catch (e) {
+    setMsg("Falha ao salvar o envio do provedor: " + (e instanceof Error ? e.message : String(e)), "err");
+  }
+}
+
 export async function loadSettings(): Promise<void> {
   setMsg("");
   try {
     const data = await invoke<SettingsData>("get_settings");
     fillForm(data);
+    void loadEnvioToggles();
     $("settings-loading").hidden = true;
     $("settings-form").hidden = false;
   } catch (e) {
@@ -310,6 +339,18 @@ export function initSettings(): void {
     $<HTMLInputElement>("set-wdgFundo").value = "";
     scheduleAutoSave();
   });
+
+  // "Enviar ao Loki" por provedor: persistido via set_envio_provider, à parte do
+  // auto-save (stopPropagation evita o save_settings geral, que apenas preservaria
+  // o bloco `envio` de qualquer forma).
+  const wireEnvio = (id: string, ferramenta: "codex" | "claude"): void => {
+    $(id).addEventListener("change", (e) => {
+      e.stopPropagation();
+      void setEnvioProvider(ferramenta, $<HTMLInputElement>(id).checked);
+    });
+  };
+  wireEnvio("set-codexEnviar", "codex");
+  wireEnvio("set-claudeEnviar", "claude");
 
   // Auto-save: qualquer alteração nos controles (toggle, select, slider, ou ao
   // sair de um campo de texto) persiste sozinha. O evento "change" borbulha, então

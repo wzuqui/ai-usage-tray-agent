@@ -22,17 +22,17 @@ function renderUpdateStatus(st: UpdateStatus): void {
   const updateBtn = $<HTMLButtonElement>("sobre-update");
   $("sobre-appVersion").textContent = st.currentVersion || "—";
   if (st.available && st.newVersion) {
-    msg.textContent = `Atualização disponível — ${st.currentVersion} → ${st.newVersion}`;
+    msg.textContent = `Atualização para a versão ${st.newVersion} disponível`;
     msg.className = "sobre-status avail";
     checkBtn.classList.add("hide");
     updateBtn.classList.remove("hide");
   } else if (st.error) {
-    msg.textContent = "Não foi possível verificar atualizações.";
+    msg.textContent = "não foi possível verificar atualizações";
     msg.className = "sobre-status err";
     checkBtn.classList.remove("hide");
     updateBtn.classList.add("hide");
   } else {
-    msg.textContent = "✓ Você está na versão mais recente.";
+    msg.textContent = "Atualizado";
     msg.className = "sobre-status ok";
     checkBtn.classList.remove("hide");
     updateBtn.classList.add("hide");

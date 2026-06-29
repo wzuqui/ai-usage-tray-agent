@@ -29,16 +29,8 @@
         <!-- ===== Envio de dados ===== -->
         <section id="view-envio" class="view">
           <h1>Envio de dados</h1>
-          <p class="sub">Controle do envio das métricas ao Loki. A coleta continua mesmo com o envio pausado ou desabilitado — os dados seguem aparecendo em "Uso atual", no widget e na barra de tarefas.</p>
           <div id="envio-banner"></div>
           <div id="envio-state"></div>
-          <div class="panel">
-            <div class="envio-prov-head">
-              <h2 class="envio-h2">Envio por provedor</h2>
-              <span class="hint envio-h2-hint">Desligue para parar de enviar um provedor sem afetar a coleta.</span>
-            </div>
-            <div id="envio-providers"></div>
-          </div>
           <div class="panel">
             <div class="envio-log-head">
               <h2 class="envio-h2">Histórico de envios</h2>
@@ -192,6 +184,10 @@
                   <label class="check"><input type="checkbox" id="set-codexHab"><span>Habilitado</span></label>
                 </div>
                 <div class="field">
+                  <label class="check"><input type="checkbox" id="set-codexEnviar"><span>Enviar ao Loki</span></label>
+                  <div class="desc">Envia as métricas deste provedor ao Loki. Não afeta a coleta.</div>
+                </div>
+                <div class="field">
                   <label for="set-codexAuth">Caminho do auth.json</label>
                   <input type="text" id="set-codexAuth" placeholder="C:\Users\usuario\.codex\auth.json">
                 </div>
@@ -202,6 +198,10 @@
                 <p class="hint">Coleta o uso do Claude usando <code>organizationId</code> e o cookie de sessão.</p>
                 <div class="field">
                   <label class="check"><input type="checkbox" id="set-claudeHab"><span>Habilitado</span></label>
+                </div>
+                <div class="field">
+                  <label class="check"><input type="checkbox" id="set-claudeEnviar"><span>Enviar ao Loki</span></label>
+                  <div class="desc">Envia as métricas deste provedor ao Loki. Não afeta a coleta.</div>
                 </div>
                 <div class="field">
                   <label for="set-claudeOrg">Organization ID</label>
@@ -385,21 +385,19 @@
         <!-- ===== Sobre ===== -->
         <section id="view-sobre" class="view">
           <h1>Sobre</h1>
-          <p class="sub">Informações do app, atualizações e novidades.</p>
-          <div class="panel">
-            <div class="sobre-head">
-              <div class="sobre-name">AiUsageTrayAgent</div>
-              <div class="sobre-ver">Versão&nbsp;<strong id="sobre-appVersion">—</strong></div>
-            </div>
-            <div class="sobre-update-row">
-              <span id="sobre-update-msg" class="sobre-status">Verificando atualizações…</span>
+          <div class="panel sobre-top">
+            <div class="sobre-headrow">
+              <div class="sobre-info">
+                <div class="sobre-name">AiUsageTrayAgent</div>
+                <span class="sobre-line">Versão&nbsp;<strong id="sobre-appVersion">—</strong> - <span id="sobre-update-msg" class="sobre-status">verificando atualizações…</span></span>
+              </div>
               <span class="sobre-actions">
                 <button type="button" class="btn" id="sobre-check">Buscar atualizações</button>
                 <button type="button" class="btn btn-primary hide" id="sobre-update">Atualizar agora</button>
               </span>
             </div>
-            <div class="sobre-foot">Repositório:
-              <a href="#" id="sobre-repo" class="link">github.com/wzuqui/ai-usage-tray-agent&nbsp;↗</a>
+            <div class="sobre-repo-line">Repositório:
+              <a href="https://github.com/wzuqui/ai-usage-tray-agent" id="sobre-repo" class="link">github.com/wzuqui/ai-usage-tray-agent&nbsp;↗</a>
             </div>
           </div>
           <div class="panel">
