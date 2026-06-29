@@ -1,0 +1,65 @@
+src-tauri/src/lib.rs
+  s_e16a85d376a5b5::t_660fd98bec2012 2564-2569
+  s_e16a85d376a5b5::t_9ba73b64f79a44 16
+  s_e16a85d376a5b5::t_8aaf6927192dfc 711-713
+  s_e16a85d376a5b5::t_71e2a1548fd152 54-83
+  s_e16a85d376a5b5::t_a3b52c77f33a64 609-611
+  s_e16a85d376a5b5::t_87a49664a95d44 478
+src-tauri/Cargo.toml
+  s_e16a85d376a5b5::t_b6b5f41a8fb684 30-31
+src/dashboard.ts
+  s_e16a85d376a5b5::t_acb382e92e847d 5
+README.md
+  s_e16a85d376a5b5::t_736b436e71113d 103-108
+  s_e16a85d376a5b5::t_1661a0ff87a8d4 251-253
+  s_e16a85d376a5b5::t_f13392d3e54e18 400-429
+  s_e16a85d376a5b5::t_9ebd3e9abccc6d 544
+  s_e16a85d376a5b5::t_a987ee0521d88f 571
+index.html
+  s_e16a85d376a5b5::t_53af2c96142698 159
+  s_e16a85d376a5b5::t_6c87326ddbe518 341-371
+src/main.ts
+  s_e16a85d376a5b5::t_60a1f1bba70ee9 7,13-22
+  s_e16a85d376a5b5::t_c9b9fb942a5935 54-56
+  s_e16a85d376a5b5::t_98a3ef0aa3b087 23
+src-tauri/src/usage_dashboard.rs
+  s_e16a85d376a5b5::t_1605ba73b4edca 263
+src/codex-dashboard.ts
+  s_e16a85d376a5b5::t_5cab29b98c9fae 6
+src-tauri/src/http_server.rs
+  s_e16a85d376a5b5::t_7a452f2ae51082 137-139,143,150
+  s_e16a85d376a5b5::t_0512d363bc836a 378-388,395-397,399-413,421,428
+  s_e16a85d376a5b5::t_e78c9d7c3f07dc 1-136,144-149,151-377,389-394,398,414-420,422-427,429
+  s_e16a85d376a5b5::t_a2b7660eb12ac2 140-142
+src/usage.ts
+  s_e16a85d376a5b5::t_21af7093da9535 6
+src/ipc.ts
+  s_e16a85d376a5b5::t_9aa25992e4de7b 1-37
+src/settings.ts
+  s_e16a85d376a5b5::t_d5d3d895eb3c7e 36-41,49
+  s_e16a85d376a5b5::t_de4d1a6d013fc4 296-301
+  s_e16a85d376a5b5::t_1d294b51d02350 105-109
+  s_e16a85d376a5b5::t_f484fcdbcaa274 71
+  s_e16a85d376a5b5::t_7ba4596930faf3 123-124
+  s_e16a85d376a5b5::t_95c0195365e234 162-167
+CHANGELOG.md
+  s_e16a85d376a5b5::t_e75237fff2b780 30
+src-tauri/Cargo.lock
+  s_e16a85d376a5b5::t_96bb8f7e781a5d 27,38,81-86,371-376,1389-1394,3977-3988
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "9df0cf133fcc23905f51c39a7696fe9c8fa0ea5f",
+  "prompts": {},
+  "sessions": {
+    "s_e16a85d376a5b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb4d868a-b45b-4913-94a7-599855fd7ae7",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Willian Zuqui <willian.zuqui@ravex.com.br>"
+    }
+  }
+}
