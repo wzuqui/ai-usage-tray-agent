@@ -262,7 +262,7 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .wprov.error { border-color: #5a3a33; }
 .wprov-head { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
 .wprov-head svg.pico { flex: none; }
-.wprov-name { font-size: 14px; font-weight: 600; }
+.wprov-name { font-size: 14px; font-weight: 600; color: #b3afa6; }
 .wprov-note { color: #c9c5bc; font-size: 12px; }
 .wprov-note.err { color: #e0816f; }
 /* Flex (nao grid de 2 colunas fixas): com 1 ou 2 janelas, cada `.wwin` cresce
@@ -276,9 +276,9 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .wbar { height: 6px; background: rgba(0, 0, 0, .4); border-radius: 999px; margin: 5px 0; overflow: hidden; }
 .wbar-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
 .wwin-reset { font-size: 10.5px; color: #b3afa6; }
-/* Contagem regressiva: mesma cor/peso do texto de reset ao redor (igual ao
-   formato "exato"), em vez de branco/negrito — vale para os três modos. */
-.w-remain { color: inherit; font-weight: inherit; }
+/* Contagem regressiva (tempo restante) em branco nos três modos, para
+   destacá-la do texto de reset ao redor. */
+.w-remain { color: #fff; font-weight: inherit; }
 /* Largura estreita: empilha as duas janelas do card. */
 @media (max-width: 300px) { .wwins { flex-direction: column; } }
 
@@ -301,7 +301,7 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .wmin-vals { margin-left: auto; display: flex; gap: 12px; align-items: baseline; }
 .wmin-item { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
 .wmin-pct { font-size: 13.5px; font-weight: 700; }
-.wmin-reset { font-size: 10.5px; color: #807c74; }
+.wmin-reset { font-size: 10.5px; color: #fff; }
 
 /* ---- Modo "anelduplo": anéis concêntricos ---- */
 /* Mesmo princípio do "minimo": o conteúdo mantém o tamanho natural (filhos não
@@ -337,15 +337,26 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .wduplo-leg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; font-size: 11.5px; color: #b3afa6; }
 .wduplo-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .wduplo-pct { font-size: 16px; font-weight: 700; white-space: nowrap; }
-.wduplo-reset { color: #807c74; white-space: nowrap; }
+.wduplo-reset { color: #fff; white-space: nowrap; }
 
 /* ===== Envio de dados ===== */
 .envio-card { background: #232220; border: 1px solid #34322d; border-radius: 14px; padding: 18px; margin-top: 18px; }
-.envio-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.envio-card-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .envio-badge { font-size: 15px; font-weight: 600; border-radius: 8px; padding: 5px 12px; display: inline-block; }
-.envio-badge.active { color: #7fc99a; background: #1f2a23; border: 1px solid #2f4a3a; }
-.envio-badge.paused { color: #d9b78a; background: #2a2620; border: 1px solid #4a3f2e; }
+/* "Envio ativo" sem pílula: só o ponto pulsante + o texto verde. */
+.envio-badge.active { color: #7fc99a; background: none; border: none; padding: 0; }
+.envio-badge.paused { color: #d9b78a; background: none; border: none; padding: 0; }
 .envio-sub { color: #9a968d; font-size: 13px; margin-top: 8px; }
+/* Status do envio por provedor, abaixo da contagem do próximo envio. */
+.envio-prov-status { color: #807c74; font-size: 12.5px; margin-top: 4px; }
+.envio-prov-state.on { color: #fff; font-weight: 600; }
+.envio-prov-state.off { color: #9a968d; }
+/* Indicador "ao vivo": ponto verde pulsante quando o envio está ativo. */
+.envio-badge.active .envio-live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #7fc99a; margin-right: 8px; vertical-align: middle; animation: envioPulse 1.4s ease-in-out infinite; }
+@keyframes envioPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(127, 201, 154, .5); }
+  50% { opacity: .45; box-shadow: 0 0 0 5px rgba(127, 201, 154, 0); }
+}
 .envio-meta { color: #807c74; font-size: 13px; margin-top: 14px; }
 .envio-meta strong { color: #c9c5bc; font-weight: 600; }
 .envio-actions { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -374,6 +385,11 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .envio-log-tool svg.pico { width: 15px; height: 15px; }
 .envio-log-status { font-weight: 600; }
 .envio-log-row.err .envio-log-status { color: #e0816f; }
+/* Pisca momentaneamente a linha recém-incluída no histórico. */
+.envio-log-new { animation: envioLogFlash 1.2s ease-out; }
+.envio-log-row.err.envio-log-new { animation: envioLogFlashErr 1.2s ease-out; }
+@keyframes envioLogFlash { from { background: rgba(127, 201, 154, .22); } to { background: transparent; } }
+@keyframes envioLogFlashErr { from { background: rgba(224, 129, 111, .22); } to { background: transparent; } }
 .envio-log-det { color: #807c74; font-size: 12px; margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 /* Histórico de envios: altura limitada com rolagem interna. */
 #envio-log { max-height: 280px; overflow-y: auto; padding-right: 4px; }
@@ -426,27 +442,29 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .link { color: #d97757; cursor: pointer; text-decoration: none; }
 .link:hover { text-decoration: underline; }
 /* Cabeçalho: nome do app + versão. */
-.sobre-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+/* Primeira seção compacta: padding menor que o .panel padrão. */
+.sobre-top { padding: 14px 18px; }
 .sobre-name { font-size: 18px; font-weight: 600; color: #e8e6e1; }
-.sobre-ver { color: #9a968d; font-size: 14px; }
-.sobre-ver strong { color: #e8e6e1; font-variant-numeric: tabular-nums; }
-/* Linha de status da atualização: mensagem à esquerda, ação à direita. */
-.sobre-update-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-  margin-top: 16px; padding-top: 16px; border-top: 1px solid #34322d; }
-.sobre-status { font-size: 14px; color: #9a968d; }
+/* Nome + versão empilhados à esquerda; botão à direita, centralizado
+   verticalmente em relação a esse bloco (topo do container até o divisor). */
+.sobre-headrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sobre-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sobre-line { font-size: 14px; color: #9a968d; }
+.sobre-line strong { color: #e8e6e1; font-variant-numeric: tabular-nums; }
+.sobre-status { color: #9a968d; }
 .sobre-status.ok { color: #7fc99a; }
 .sobre-status.avail { color: #d9b78a; font-weight: 600; }
 .sobre-status.err { color: #e0816f; }
 .sobre-actions { display: flex; gap: 8px; flex: none; }
-/* Rodapé: link do repositório, discreto. */
-.sobre-foot { margin-top: 16px; padding-top: 14px; border-top: 1px solid #34322d; font-size: 13px; color: #807c74; }
-.sobre-nov-title { margin: 0 0 12px; font-size: 18px; }
+/* Repositório na linha de baixo, separado por um divisor. */
+.sobre-repo-line { margin-top: 14px; padding-top: 14px; border-top: 1px solid #34322d; font-size: 13px; color: #807c74; }
+.sobre-nov-title { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid #34322d; font-size: 18px; }
 .sobre-nov-head .envio-h2 { margin: 0; }
-/* Novidades dentro da aba Sobre: altura fixa com rolagem interna. */
+/* Novidades dentro da aba Sobre: lista solta no painel (sem caixa própria),
+   só com altura fixa e rolagem interna. */
 .sobre-novidades {
   max-height: 300px; overflow-y: auto;
-  background: #1c1b18; border: 1px solid #34322d; border-radius: 10px;
-  padding: 2px 14px 10px;
+  padding-right: 6px;
 }
 .sobre-novidades::-webkit-scrollbar { width: 8px; }
 .sobre-novidades::-webkit-scrollbar-thumb { background: #3a3833; border-radius: 999px; }

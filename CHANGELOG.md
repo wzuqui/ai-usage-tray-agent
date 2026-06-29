@@ -26,6 +26,21 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 
 ## [Não lançado]
 
+### Adicionado
+- Configurações: opção **Enviar ao Loki** em cada provedor (Codex e Claude).
+- Envio de dados: indicador "ao vivo" com **contagem regressiva** do próximo envio e o **status de envio de cada provedor**; o histórico **destaca** as novas entradas.
+
+### Alterado
+- Tela **Sobre**: primeira seção reorganizada (versão e status de atualização na mesma linha; repositório logo abaixo) e a lista de **Novidades** sem a caixa interna.
+- Tela **Envio de dados**: visual simplificado.
+- Widget: nome do provedor em cinza e o tempo de reset em branco, em todos os modos de exibição.
+
+### Removido
+- Envio de dados: a seção **Envio por provedor** (agora nas Configurações de cada provedor), o botão **Enviar agora** e a informação "Último envio com sucesso".
+
+### Corrigido
+- Tela Sobre: o **Copiar link** (menu do botão direito) do repositório agora copia o endereço correto.
+
 ## [0.2.37] - 2026-06-29
 
 ### Adicionado

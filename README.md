@@ -169,24 +169,25 @@ Primeira tela do menu. Controla o **envio das métricas ao Loki** sem afetar a
 coleta — os dados continuam sendo coletados e exibidos em "Uso atual", no widget
 e na barra mesmo com o envio pausado/desabilitado. Traz:
 
-- **Estado atual** (envio ativo/pausado) e o horário do último envio bem-sucedido.
+- **Estado atual** com um indicador "ao vivo" (ponto pulsante quando ativo),
+  **contagem regressiva** do próximo envio automático e o **status de envio de
+  cada provedor** (Claude/Codex: ativado/desativado).
 - **Pausar/retomar envio** (geral): suspende só o envio ao Loki. Persistido em
   `config.json` (`envio.pausado`) e **sincronizado com o menu do tray** — pausar
   pelo tray reflete aqui e vice-versa.
-- **Enviar agora** (geral): força um envio imediato, ignorando a pausa (mas
-  respeitando o desligamento por provedor).
-- **Envio por provedor**: liga/desliga o envio de Claude e/ou Codex
-  (`envio.claude`, `envio.codex`), sem parar a coleta deles.
 - **Histórico de envios**: data/hora e status (sucesso/falha) dos últimos envios,
-  atualizado quase em tempo real. Botão **Limpar** zera a lista.
+  atualizado quase em tempo real; cada **nova entrada pisca** ao aparecer. Botão
+  **Limpar** zera a lista.
 
-Tudo em `envio` (pausa e envio por provedor) é **persistido no `config.json`** e
-gerenciado só por esta tela — o painel de **Configurações** não toca nesses
-campos, então editar as configurações não reativa o envio nem tira a pausa. O
-histórico tem altura limitada e **rola por dentro** do card.
+O liga/desliga do envio **por provedor** (`envio.claude`, `envio.codex`) fica nas
+**Configurações**, na aba de cada provedor (opção "Enviar ao Loki"). Tudo em
+`envio` é **persistido no `config.json`**; a pausa geral é gerenciada por esta
+tela e o painel de **Configurações** preserva esse bloco (editar configurações
+não reativa o envio nem tira a pausa). O histórico tem altura limitada e **rola
+por dentro** do card.
 
 Os dados vêm do comando `get_envio_state`; as ações usam `set_envio_paused`,
-`set_envio_provider`, `envio_send_now` e `clear_send_log`.
+`set_envio_provider` (a partir das Configurações) e `clear_send_log`.
 
 ### Uso atual
 
@@ -237,8 +238,9 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
 "iniciar com o sistema"):
 
 - **Geral**: `usuario`, `intervaloSegundos`, `loki.url`.
-- **Codex**: `habilitado`, `authJsonPath`.
-- **Claude**: `habilitado`, `organizationId`, `cookie` (com mostrar/ocultar).
+- **Codex**: `habilitado`, **Enviar ao Loki** (`envio.codex`), `authJsonPath`.
+- **Claude**: `habilitado`, **Enviar ao Loki** (`envio.claude`), `organizationId`,
+  `cookie` (com mostrar/ocultar).
 - **Barra de tarefas** (Windows): exibir cada provedor na barra
   (`providers.<ia>.mostraNaTaskbarWindows`), `lado`, `deslocamento`,
   `tamanhoFonte`, `corFonte` (com seletor de cor), `formatoReset` (tempo
@@ -258,7 +260,9 @@ Não há botão "Salvar": as alterações têm **auto-save** (com debounce) — 
 mudança grava o `config.json` sozinha (com normalização: clamp de intervalo/fonte,
 validação de cor) e o app aplica tudo em ~1s, **sem reiniciar e sem disparar um
 envio extra** ao Loki. O autostart é aplicado na hora. Os valores são relidos do
-disco ao reabrir a tela.
+disco ao reabrir a tela. A opção **Enviar ao Loki** (Codex/Claude) é gravada à
+parte (via `set_envio_provider`), fora do auto-save, para preservar o bloco
+`envio` gerenciado pela tela **Envio de dados**.
 
 ### Sobre
 
