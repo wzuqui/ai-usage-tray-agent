@@ -134,6 +134,7 @@ fn handle_request(
     let path = raw_url.split('?').next().unwrap_or("/").to_string();
 
     match (&method, path.as_str()) {
+        (&Method::Get, "/favicon.ico") => serve_favicon(request),
         (&Method::Post, "/api/login") => handle_login(paths, sessions, request),
         (&Method::Post, "/api/logout") => handle_logout(sessions, request),
         (&Method::Get, "/login") => {
@@ -261,6 +262,17 @@ fn serve_asset(app: &AppHandle, path: &str, request: Request) {
         }
         None => respond_text(request, 404, "asset nao encontrado"),
     }
+}
+
+/// Serve o favicon (o mesmo icone do app, embutido no binario). Publico — o
+/// navegador o requisita automaticamente, sem cookie, tanto na tela de login
+/// quanto na SPA. Evita o 404 que deixava a aba sem icone.
+fn serve_favicon(request: Request) {
+    const ICONE: &[u8] = include_bytes!("../icons/icon.ico");
+    let response = Response::from_data(ICONE.to_vec())
+        .with_header(header("Content-Type", "image/x-icon"))
+        .with_header(header("Cache-Control", "public, max-age=86400"));
+    let _ = request.respond(response);
 }
 
 // ---- Sessao / autenticacao -------------------------------------------------
