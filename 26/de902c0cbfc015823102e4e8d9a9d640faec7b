@@ -1,0 +1,20 @@
+src-tauri/src/http_server.rs
+  s_e16a85d376a5b5::t_54231eab620334 137
+  s_e16a85d376a5b5::t_920b8a04548063 267-277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "26de902c0cbfc015823102e4e8d9a9d640faec7b",
+  "prompts": {},
+  "sessions": {
+    "s_e16a85d376a5b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cb4d868a-b45b-4913-94a7-599855fd7ae7",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Willian Zuqui <willian.zuqui@ravex.com.br>"
+    }
+  }
+}
