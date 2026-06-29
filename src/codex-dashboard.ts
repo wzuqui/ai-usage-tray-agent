@@ -319,11 +319,16 @@ function renderMessage(text: string, isError = false): void {
 
 /// Busca os dados pelo IPC (chamada de rede) e re-renderiza. Mostra um skeleton
 /// durante a chamada porque, diferente do Claude, aqui há latência de rede.
-export async function loadCodexDashboard(): Promise<void> {
+export async function loadCodexDashboard(opts?: { skeleton?: boolean }): Promise<void> {
   if (loading) return;
   loading = true;
-  renderLoading();
-  el("codex-foot").textContent = "";
+  // Skeleton só na 1ª carga ou em ação explícita (troca de período/aplicar range).
+  // Em refresh de fundo (foco/resize da janela) mantém o conteúdo atual para não
+  // piscar o skeleton.
+  if (opts?.skeleton ?? !DATA) {
+    renderLoading();
+    el("codex-foot").textContent = "";
+  }
   try {
     const range = customRange();
     const args = customActive ? { days, start: range.from, end: range.to } : { days };
@@ -369,7 +374,7 @@ export function initCodexDashboard(): void {
       customBtn.textContent = CUSTOM_LABEL;
       setOn(".codex-ranges", b);
       setCustomOpen(false);
-      void loadCodexDashboard();
+      void loadCodexDashboard({ skeleton: true });
     }));
 
   const from = el("codex-range-from") as HTMLInputElement;
@@ -386,7 +391,7 @@ export function initCodexDashboard(): void {
     customBtn.textContent = fmtShort(f) + " – " + fmtShort(t);
     setOn(".codex-ranges", customBtn);
     setCustomOpen(false);
-    void loadCodexDashboard();
+    void loadCodexDashboard({ skeleton: true });
   };
 
   // Fecha o popover ao clicar fora (exceto no botão "Personalizado") ou com Esc.

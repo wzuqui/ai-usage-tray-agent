@@ -186,9 +186,12 @@ struct WidgetConfig {
     /// Quais janelas mostrar nos cards: "ambos" (padrao), "sessao" (so 5h) ou
     /// "semanal" (so 7d).
     janelas: String,
-    /// Como exibir o reset nos cards: "restante" (padrao, tempo regressivo) ou
-    /// "exato" (hora/data do reset). Igual a opcao da barra de tarefas.
+    /// Como exibir o reset nos cards: "restante" (padrao, tempo regressivo),
+    /// "exato" (hora/data do reset) ou "nenhum" (oculta o reset).
     formato_reset: String,
+    /// Modo de exibicao de cada provedor: "completo" (padrao, cards com barras),
+    /// "minimo" (uma linha por provedor) ou "anelduplo" (aneis concentricos).
+    modo: String,
 }
 
 impl Default for WidgetConfig {
@@ -202,6 +205,7 @@ impl Default for WidgetConfig {
             opacidade: 90,
             janelas: "ambos".to_string(),
             formato_reset: "restante".to_string(),
+            modo: "completo".to_string(),
         }
     }
 }
@@ -902,6 +906,7 @@ fn widget_state_value(paths: &RuntimePaths, shared: &Arc<SharedState>) -> Value 
         "opacidade": widget.opacidade,
         "janelas": widget.janelas,
         "formatoReset": widget.formato_reset,
+        "modo": widget.modo,
         "sempreNaFrente": widget.sempre_na_frente,
         "paused": snapshot.paused,
         "claude": {
@@ -1015,7 +1020,7 @@ fn show_widget_window<R: Runtime>(app: &AppHandle<R>, config: &AppConfig) {
     let result = WebviewWindowBuilder::new(app, "widget", WebviewUrl::App("widget.html".into()))
         .title("Widget de uso")
         .inner_size(320.0, 180.0)
-        .min_inner_size(160.0, 120.0)
+        .min_inner_size(160.0, 48.0)
         .decorations(false)
         // Janela OPACA: no Windows o DWM arredonda/recorta os cantos da janela
         // (mostrando o desktop atras) em hardware, sem serrilhado. Janela

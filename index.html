@@ -294,6 +294,15 @@
                 <div class="field">
                   <label class="check"><input type="checkbox" id="set-wdgTopo"><span>Sempre na frente</span></label>
                 </div>
+                <div class="field">
+                  <label for="set-wdgModo">Modo de exibição</label>
+                  <select id="set-wdgModo">
+                    <option value="completo">Completo (cards com barras)</option>
+                    <option value="minimo">Mínimo (uma linha por provedor)</option>
+                    <option value="anelduplo">Anel duplo (anéis de progresso)</option>
+                  </select>
+                  <div class="desc">Como cada provedor aparece no widget. "Anel duplo" desenha a sessão (5h) no anel externo e o semanal (7d) no interno.</div>
+                </div>
                 <div class="row">
                   <div class="field">
                     <label for="set-wdgJanelas">Janelas exibidas</label>
@@ -308,6 +317,7 @@
                     <select id="set-wdgFormatoReset">
                       <option value="restante">Tempo restante (ex.: 3h 33min)</option>
                       <option value="exato">Hora/data exata (ex.: 14:29 · 22/06, 19:59)</option>
+                      <option value="nenhum">Nenhum (ocultar reset)</option>
                     </select>
                   </div>
                 </div>

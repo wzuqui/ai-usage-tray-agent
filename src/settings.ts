@@ -31,6 +31,7 @@ interface WidgetConfig {
   opacidade: number;
   janelas: string;
   formatoReset: string;
+  modo: string;
 }
 interface AppConfig {
   usuario: string;
@@ -88,7 +89,8 @@ function fillForm(data: SettingsData): void {
   $<HTMLInputElement>("set-wdgTopo").checked = widget?.sempreNaFrente !== false;
   $<HTMLInputElement>("set-wdgFundo").value = widget?.fundo ?? "";
   $<HTMLSelectElement>("set-wdgJanelas").value = normJanelas(widget?.janelas);
-  $<HTMLSelectElement>("set-wdgFormatoReset").value = widget?.formatoReset === "exato" ? "exato" : "restante";
+  $<HTMLSelectElement>("set-wdgFormatoReset").value = normResetMode(widget?.formatoReset);
+  $<HTMLSelectElement>("set-wdgModo").value = normModo(widget?.modo);
   $<HTMLInputElement>("set-wdgOpac").value = String(widget?.opacidade ?? 90);
   syncOpacLabel();
 
@@ -140,6 +142,7 @@ function collect(): SaveSettings {
       opacidade,
       janelas: $<HTMLSelectElement>("set-wdgJanelas").value,
       formatoReset: $<HTMLSelectElement>("set-wdgFormatoReset").value,
+      modo: $<HTMLSelectElement>("set-wdgModo").value,
     },
   };
   return { config, autostart: $<HTMLInputElement>("set-autostart").checked };
@@ -160,6 +163,17 @@ function syncOpacLabel(): void {
 /// Normaliza a opção de janelas para um dos valores válidos do <select>.
 function normJanelas(value: string | undefined): "ambos" | "sessao" | "semanal" {
   return value === "sessao" || value === "semanal" ? value : "ambos";
+}
+
+/// Normaliza o formato do reset para um valor do <select> (default "restante").
+function normResetMode(value: string | undefined): "restante" | "exato" | "nenhum" {
+  return value === "exato" || value === "nenhum" ? value : "restante";
+}
+
+/// Normaliza o modo de exibição do widget para um valor do <select>
+/// (default "completo").
+function normModo(value: string | undefined): "completo" | "minimo" | "anelduplo" {
+  return value === "minimo" || value === "anelduplo" ? value : "completo";
 }
 
 /// Abre o seletor de arquivo nativo (no backend) e joga o caminho escolhido no

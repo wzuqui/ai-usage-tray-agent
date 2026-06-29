@@ -16,6 +16,12 @@ import {
   pctText,
   type ProviderUsage,
 } from "./usage-format";
+import {
+  parseResetMode,
+  renderProviderAnelDuplo,
+  renderProviderMinimo,
+  type ResetMode,
+} from "./widget-modos";
 
 const WIDGET_WIDTH = 320;
 
@@ -27,6 +33,7 @@ interface WidgetState {
   opacidade: number;
   janelas: string;
   formatoReset: string;
+  modo: string;
   sempreNaFrente: boolean;
   paused: boolean;
   claude: ProviderUsage;
@@ -47,19 +54,20 @@ const el = (id: string): HTMLElement => document.getElementById(id) as HTMLEleme
 let lastFundo: string | null = null;
 
 /// Bloco compacto de uma janela (sessão 5h ou semanal 7d): rótulo curto + % +
-/// barra fina + reset. Com `exact`, mostra a hora/data exata do reset (estática);
-/// senão, o tempo restante (que conta ao vivo). Omitido quando não há dados.
+/// barra fina + reset. Com `mode === "exato"`, mostra a hora/data exata do reset
+/// (estática); "restante" mostra o tempo restante (conta ao vivo); "nenhum"
+/// omite a linha de reset. Omitido por completo quando não há dados.
 function windowBlock(
   label: string,
   pct: number | undefined | null,
   resetIso: string | null | undefined,
-  exact: boolean,
+  mode: ResetMode,
 ): string {
   if (pct === undefined || pct === null) return "";
   const width = Math.max(0, Math.min(100, pct));
   let reset = "";
-  if (resetIso) {
-    reset = exact
+  if (resetIso && mode !== "nenhum") {
+    reset = mode === "exato"
       ? `<div class="wwin-reset">reset ${fmtResetClock(resetIso)}</div>`
       : `<div class="wwin-reset">reset em <span class="w-remain" data-reset="${escapeHtml(resetIso)}">${fmtRemaining(resetIso)}</span></div>`;
   }
@@ -78,7 +86,7 @@ function renderProvider(
   prov: ProviderUsage,
   mostra: boolean,
   janelas: { sessao: boolean; semanal: boolean },
-  exact: boolean,
+  mode: ResetMode,
 ): string | null {
   if (!mostra || !prov.habilitado) return null;
   const icon = label === "Codex" ? iconCodex() : ICON_CLAUDE;
@@ -92,8 +100,8 @@ function renderProvider(
     return `<div class="wprov error">${head}<div class="wprov-note err">erro na coleta</div></div>`;
   }
   const blocks = [
-    janelas.sessao ? windowBlock("Sessão 5h", m.uso_percentual, m.reset_em, exact) : "",
-    janelas.semanal ? windowBlock("Semanal 7d", m.uso_percentual_7d, m.reset_em_7d, exact) : "",
+    janelas.sessao ? windowBlock("Sessão 5h", m.uso_percentual, m.reset_em, mode) : "",
+    janelas.semanal ? windowBlock("Semanal 7d", m.uso_percentual_7d, m.reset_em_7d, mode) : "",
   ].join("");
   return `<div class="wprov">${head}
     <div class="wwins">${blocks}</div>
@@ -169,10 +177,18 @@ function render(state: WidgetState): void {
   el("wdg").style.setProperty("--wdg-alpha", String(alpha));
 
   const janelas = parseJanelas(state.janelas);
-  const exact = state.formatoReset === "exato";
+  const mode = parseResetMode(state.formatoReset);
+  // Modo de exibição: "completo" (atual — cards com barras), "minimo" (uma linha
+  // por provedor) ou "anelduplo" (anéis concêntricos). Default: "completo".
+  const modo = (state.modo ?? "completo").trim().toLowerCase();
+  const pick = (label: string, prov: ProviderUsage, mostra: boolean): string | null => {
+    if (modo === "minimo") return renderProviderMinimo(label, prov, mostra, janelas, mode);
+    if (modo === "anelduplo") return renderProviderAnelDuplo(label, prov, mostra, janelas, mode);
+    return renderProvider(label, prov, mostra, janelas, mode);
+  };
   const cards = [
-    renderProvider("Claude", state.claude, state.mostraClaude, janelas, exact),
-    renderProvider("Codex", state.codex, state.mostraCodex, janelas, exact),
+    pick("Claude", state.claude, state.mostraClaude),
+    pick("Codex", state.codex, state.mostraCodex),
   ].filter((c): c is string => c !== null);
 
   el("wdg-cards").innerHTML = cards.length

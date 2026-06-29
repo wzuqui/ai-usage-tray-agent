@@ -238,8 +238,9 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
   `tamanhoFonte`, `corFonte` (com seletor de cor), `formatoReset` (tempo
   restante ou hora/data exata) e `janelas` (quais janelas exibir).
 - **Widget**: liga o widget da área de trabalho e configura o que ele mostra —
-  `habilitado`, `mostraClaude`, `mostraCodex`, `sempreNaFrente`, `janelas`,
-  `formatoReset`, imagem/gif de `fundo` (com seletor de arquivo) e `opacidade`
+  `habilitado`, `mostraClaude`, `mostraCodex`, `sempreNaFrente`, `modo` (Completo,
+  Mínimo ou Anel duplo), `janelas`, `formatoReset` (tempo restante, hora/data
+  exata ou nenhum), imagem/gif de `fundo` (com seletor de arquivo) e `opacidade`
   do painel.
 - **Sistema**: **Iniciar com o sistema** (autostart) — não fica no `config.json`,
   é gerenciado pelo `tauri-plugin-autostart`.
@@ -367,7 +368,13 @@ sem reiniciar.
 
 - **Conteúdo**: `mostraClaude`/`mostraCodex` escolhem quais provedores aparecem
   (além de o provedor estar `habilitado`); `janelas` e `formatoReset` funcionam
-  igual aos da barra (sessão/semanal e tempo restante vs. hora/data exata).
+  igual aos da barra (sessão/semanal e tempo restante vs. hora/data exata),
+  com a opção extra `"nenhum"` no `formatoReset` que oculta o reset.
+- **Modo de exibição** (`modo`): como cada provedor aparece — `"completo"`
+  (padrão; cards com barras), `"minimo"` (uma linha por provedor: ícone, nome e
+  as porcentagens) ou `"anelduplo"` (anéis de progresso concêntricos, sessão no
+  anel externo e semanal no interno; com uma janela só, desenha apenas o anel
+  interno e encolhe).
 - **Posição e tamanho**: arraste a janela para reposicionar e redimensione pelas
   bordas; a posição e o tamanho são lembrados entre execuções. Na primeira vez o
   widget ajusta a altura ao conteúdo.
@@ -507,6 +514,7 @@ src/
   update.ts           # janela de novidades do OTA (delta de versoes; get_changelog/install_update)
   settings.ts         # configuracoes com abas e auto-save (consome get_settings/save_settings)
   widget.ts           # widget da area de trabalho (consome get_widget_state)
+  widget-modos.ts     # modos de exibicao do widget: "minimo" e "anelduplo"
   styles.css
 
 src-tauri/

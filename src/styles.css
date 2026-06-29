@@ -110,13 +110,30 @@ svg text { fill: #9a968d; font-size: 11px; }
 .lrow .dot { width: 11px; height: 11px; border-radius: 3px; }
 .lrow .io { color: #9a968d; }
 .lrow .pct { text-align: right; font-weight: 600; }
-.ranklist { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
-.rrow { display: grid; grid-template-columns: 160px 1fr auto; gap: 12px; align-items: center; font-size: 14px; }
-.rrow .rlabel { color: #e8e6e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Uma única grade para a lista toda. Com display:contents nas linhas, os 3
+   filhos de cada linha (label · barra · valor) entram direto nesta grade, então
+   as colunas se alinham entre TODAS as linhas: as barras ficam com exatamente o
+   mesmo comprimento e a coluna de valor não desalinha por linha.
+   - label: fit-content(40%) -> largura do MAIOR label da lista, com teto de 40%.
+     Labels curtos => coluna estreita (barra começa perto); label longo => trava
+     em 40% e corta com reticências. O teto é %, então cresce ao ampliar a janela;
+   - barra: 1fr -> ocupa o espaço restante, igual em todas as linhas;
+   - valor: auto -> largura do maior valor da lista (sem estouro/desalinho). */
+.ranklist { display: grid; grid-template-columns: fit-content(40%) 1fr auto; column-gap: 12px; row-gap: 8px; align-items: center; margin-top: 16px; max-height: calc(100vh - 245px); overflow-y: auto; padding-right: 6px; font-size: 14px; }
+.ranklist::-webkit-scrollbar { width: 8px; }
+.ranklist::-webkit-scrollbar-thumb { background: #3a3833; border-radius: 999px; }
+.ranklist::-webkit-scrollbar-thumb:hover { background: #4a473f; }
+.ranklist::-webkit-scrollbar-track { background: transparent; }
+.rrow { display: contents; }
+/* Label com clamp de 2 linhas: quebra dentro da coluna (limitada a 40%) e, se
+   passar de 2 linhas, corta com reticências. overflow-wrap:anywhere permite
+   quebrar caminhos sem espaço e mantém o teto de fit-content(40%). Curtos ficam
+   em 1 linha. */
+.rrow .rlabel { min-width: 0; color: #e8e6e1; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .rrow .rbar { background: #2e2d29; border-radius: 6px; height: 22px; overflow: hidden; }
 .rrow .rbar > span { display: block; height: 100%; border-radius: 6px; min-width: 2px; }
 .rrow .rval { color: #9a968d; text-align: right; white-space: nowrap; }
-.rank-empty { color: #807c74; font-size: 14px; margin-top: 16px; }
+.rank-empty { grid-column: 1 / -1; color: #807c74; font-size: 14px; margin-top: 16px; }
 .codex-empty { color: #807c74; font-size: 14px; text-align: center; padding: 48px 12px; }
 .codex-empty.err { color: #e0816f; }
 @keyframes skel-pulse { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
@@ -259,9 +276,68 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .wbar { height: 6px; background: rgba(0, 0, 0, .4); border-radius: 999px; margin: 5px 0; overflow: hidden; }
 .wbar-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
 .wwin-reset { font-size: 10.5px; color: #b3afa6; }
-.w-remain { color: #fff; font-weight: 600; }
+/* Contagem regressiva: mesma cor/peso do texto de reset ao redor (igual ao
+   formato "exato"), em vez de branco/negrito — vale para os três modos. */
+.w-remain { color: inherit; font-weight: inherit; }
 /* Largura estreita: empilha as duas janelas do card. */
 @media (max-width: 300px) { .wwins { flex-direction: column; } }
+
+/* ---- Modo "minimo": uma linha por provedor ---- */
+/* Nunca quebra a linha: o conteúdo mantém o tamanho natural (filhos não
+   encolhem) e, se a janela for mais estreita que o conteúdo, a própria linha
+   rola na horizontal em vez de comprimir/quebrar o texto. */
+.wprov-min {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  overflow-x: auto;
+}
+.wprov-min > * { flex: none; }
+.wprov-min .wprov-name { font-size: 12.5px; white-space: nowrap; }
+.wprov-min .spark { font-size: 15px; line-height: 1; }
+.wprov-min svg.pico { width: 18px; height: 18px; }
+.wmin-vals { margin-left: auto; display: flex; gap: 12px; align-items: baseline; }
+.wmin-item { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.wmin-pct { font-size: 13.5px; font-weight: 700; }
+.wmin-reset { font-size: 10.5px; color: #807c74; }
+
+/* ---- Modo "anelduplo": anéis concêntricos ---- */
+/* Mesmo princípio do "minimo": o conteúdo mantém o tamanho natural (filhos não
+   encolhem) e, se a janela for mais estreita que o conteúdo, o card rola na
+   horizontal em vez de comprimir/quebrar o texto da legenda. */
+.wprov-duplo {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 5px;
+}
+.wduplo-rings { position: relative; display: block; flex: none; }
+.wduplo-rings svg { display: block; }
+/* Ícone centralizado dentro dos anéis. */
+.wduplo-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* O ✳ é um glifo de texto e renderiza um pouco abaixo do centro da sua caixa;
+   um leve empurrão para cima o alinha opticamente dentro dos anéis (o ícone do
+   Codex é SVG simétrico e não precisa). */
+.wduplo-icon .spark { font-size: 23px; line-height: 1; transform: translateY(-1px); }
+.wduplo-icon svg.pico { width: 26px; height: 26px; }
+/* min-width:0 deixa a coluna da legenda encolher junto com a janela; quando ela
+   fica estreita, o reset (.wduplo-reset) quebra para a linha de baixo (a row-gap
+   de 4px o separa do "5h xx%"), que continua inteiro por serem itens nowrap. */
+.wduplo-info { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.wduplo-info .wprov-name { font-size: 14px; white-space: nowrap; }
+.wduplo-leg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; font-size: 11.5px; color: #b3afa6; }
+.wduplo-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.wduplo-pct { font-size: 16px; font-weight: 700; white-space: nowrap; }
+.wduplo-reset { color: #807c74; white-space: nowrap; }
 
 /* ===== Envio de dados ===== */
 .envio-card { background: #232220; border: 1px solid #34322d; border-radius: 14px; padding: 18px; margin-top: 18px; }

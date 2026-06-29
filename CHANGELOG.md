@@ -26,6 +26,19 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 
 ## [Não lançado]
 
+### Adicionado
+- Widget: novo seletor **Modo de exibição** com **Completo** (cards com barras, o atual), **Mínimo** (uma linha por provedor) e **Anel duplo** (anéis de progresso, sessão no anel externo e semanal no interno).
+- Widget: opção **Nenhum** no formato do reset, que oculta o tempo/horário de reset em todos os modos.
+
+### Alterado
+- Widget: a janela pode ficar mais compacta (altura mínima menor), útil nos modos Mínimo e Anel duplo.
+- Dashboard Claude: nas abas **Ferramentas** e **Projetos**, as barras de ranking ficaram com o mesmo comprimento e os nomes longos não são mais cortados.
+
+### Corrigido
+- Dashboard Codex: o indicador de carregamento não pisca mais ao reabrir a janela.
+
+## [0.2.32] - 2026-06-25
+
 ### Corrigido
 - O botão **Atualizar agora** na tela **Sobre** abria uma janela em branco; agora carrega as novidades normalmente.
 
