@@ -91,9 +91,8 @@ impl Default for ServerConfig {
 #[serde(rename_all = "camelCase", default)]
 struct EnvioConfig {
     /// Pausa geral do envio. Mesmo pausado, a coleta continua; so' o envio ao Loki
-    /// e' suspenso (o "Enviar agora" ignora a pausa). Persistido para sobreviver a
-    /// reinicios; sincronizado com o snapshot em memoria (fonte usada pelo worker)
-    /// e refletido no menu do tray.
+    /// e' suspenso. Persistido para sobreviver a reinicios; sincronizado com o
+    /// snapshot em memoria (fonte usada pelo worker) e refletido no menu do tray.
     pausado: bool,
     /// Envia as metricas do Claude ao Loki. Com `false`, o Claude continua sendo
     /// coletado e exibido, mas nao e' enviado.
@@ -372,9 +371,6 @@ struct SharedState {
     snapshot: Mutex<RuntimeSnapshot>,
     cycle_lock: Mutex<()>,
     stop: AtomicBool,
-    /// Ha' um envio manual ("Enviar agora") em andamento. Evita empilhar uma
-    /// thread por clique enquanto um ciclo anterior ainda espera o `cycle_lock`.
-    manual_pending: AtomicBool,
     /// Ha' uma coleta forcada ("Atualizar agora") em andamento. Coalesce cliques
     /// repetidos para nao empilhar varios ciclos no `cycle_lock`.
     force_pending: AtomicBool,
@@ -393,8 +389,8 @@ fn lock_snapshot(shared: &SharedState) -> std::sync::MutexGuard<'_, RuntimeSnaps
 }
 
 /// Reseta um flag atomico de "em andamento" ao sair do escopo, inclusive em
-/// panic. Garante que `manual_pending`/`force_pending` nunca fiquem presos em
-/// `true` (o que bloquearia novos cliques de "Enviar agora"/"Atualizar agora").
+/// panic. Garante que `force_pending` nunca fique preso em `true` (o que
+/// bloquearia novos cliques de "Atualizar agora").
 struct FlagGuard<'a>(&'a AtomicBool);
 
 impl Drop for FlagGuard<'_> {
@@ -407,9 +403,6 @@ impl Drop for FlagGuard<'_> {
 /// (set_text/set_checked/set_enabled) em vez de reconstruir o menu — assim o
 /// menu nao fecha sozinho quando atualizamos a cada ciclo de coleta.
 struct TrayMenuItems<R: Runtime> {
-    status: MenuItem<R>,
-    codex_status: MenuItem<R>,
-    claude_status: MenuItem<R>,
     toggle_pause: MenuItem<R>,
 }
 
@@ -555,7 +548,6 @@ pub fn run() {
                 snapshot: Mutex::new(initial_snapshot),
                 cycle_lock: Mutex::new(()),
                 stop: AtomicBool::new(false),
-                manual_pending: AtomicBool::new(false),
                 force_pending: AtomicBool::new(false),
                 pending_update: Mutex::new(None),
             });
@@ -752,7 +744,7 @@ fn get_usage(paths: State<'_, RuntimePaths>, shared: State<'_, Arc<SharedState>>
 /// do ciclo, se houver, ja' fica refletido no proprio snapshot (status/erro por
 /// provider). Respeita as regras de envio: com o envio pausado/desabilitado,
 /// atualiza os dados/UI **sem** enviar ao Loki (o envio so' ocorre com o envio
-/// ativo ou no "Enviar agora", que ignora a pausa).
+/// ativo).
 #[tauri::command]
 async fn force_collect(app: AppHandle) -> Value {
     tauri::async_runtime::spawn_blocking(move || {
@@ -766,7 +758,7 @@ async fn force_collect(app: AppHandle) -> Value {
         let _guard = FlagGuard(&shared.force_pending);
         // "Atualizar agora" forca uma coleta nova respeitando as regras de envio
         // (pausa + config.envio); nao e' um envio manual forcado.
-        let _ = run_collection_cycle(&app, &paths, &shared, false);
+        let _ = run_collection_cycle(&app, &paths, &shared);
         usage_value(&paths, &shared)
     })
     .await
@@ -1232,17 +1224,6 @@ fn create_tray<R: Runtime>(app: &mut tauri::App<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Texto do item de status conforme o estado atual.
-fn tray_status_text(snapshot: &RuntimeSnapshot) -> String {
-    if snapshot.paused {
-        "Status: envio pausado".to_string()
-    } else if let Some(error) = &snapshot.last_error {
-        format!("Status: erro - {}", truncate(error, 64))
-    } else {
-        "Status: envio ativo".to_string()
-    }
-}
-
 fn tray_pause_label(snapshot: &RuntimeSnapshot) -> &'static str {
     if snapshot.paused {
         "Retomar envio"
@@ -1255,20 +1236,13 @@ fn build_tray_menu<R: Runtime>(
     app: &AppHandle<R>,
     snapshot: &RuntimeSnapshot,
 ) -> tauri::Result<(Menu<R>, TrayMenuItems<R>)> {
-    let status_text = tray_status_text(snapshot);
-    let codex_text = format!("Codex: {}", metric_text(snapshot.codex_metric.as_ref()));
-    let claude_text = format!("Claude: {}", metric_text(snapshot.claude_metric.as_ref()));
     let pause_label = tray_pause_label(snapshot);
 
-    let status_item = MenuItem::with_id(app, "status", status_text, false, None::<&str>)?;
-    let codex_item = MenuItem::with_id(app, "codex_status", codex_text, false, None::<&str>)?;
-    let claude_item = MenuItem::with_id(app, "claude_status", claude_text, false, None::<&str>)?;
     let open_app_item = MenuItem::with_id(app, "open_app", "Abrir", true, None::<&str>)?;
     let open_config_item =
         MenuItem::with_id(app, "open_config", "Abrir config.json", true, None::<&str>)?;
     let open_logs_item =
         MenuItem::with_id(app, "open_logs", "Abrir pasta de logs", true, None::<&str>)?;
-    let send_now_item = MenuItem::with_id(app, "send_now", "Enviar agora", true, None::<&str>)?;
     let toggle_pause_item =
         MenuItem::with_id(app, "toggle_pause", pause_label, true, None::<&str>)?;
     let check_updates_item =
@@ -1276,18 +1250,12 @@ fn build_tray_menu<R: Runtime>(
 
     let quit_item = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
 
-    let separator_info = PredefinedMenuItem::separator(app)?;
     let separator_actions = PredefinedMenuItem::separator(app)?;
 
     let items: Vec<&dyn IsMenuItem<R>> = vec![
-        &status_item,
-        &codex_item,
-        &claude_item,
-        &separator_info,
         &open_app_item,
         &open_config_item,
         &open_logs_item,
-        &send_now_item,
         &toggle_pause_item,
         &check_updates_item,
         &separator_actions,
@@ -1298,9 +1266,6 @@ fn build_tray_menu<R: Runtime>(
     drop(items); // encerra os borrows antes de mover os itens para os handles
 
     let handles = TrayMenuItems {
-        status: status_item,
-        codex_status: codex_item,
-        claude_status: claude_item,
         toggle_pause: toggle_pause_item,
     };
 
@@ -1314,9 +1279,6 @@ fn build_tray_menu<R: Runtime>(
 /// esperar o resultado. Isso evita que a thread do worker bloqueie enquanto o
 /// menu popup esta aberto (a main thread fica no loop modal do menu ate fechar).
 fn update_tray_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &RuntimeSnapshot) {
-    let status = tray_status_text(snapshot);
-    let codex = format!("Codex: {}", metric_text(snapshot.codex_metric.as_ref()));
-    let claude = format!("Claude: {}", metric_text(snapshot.claude_metric.as_ref()));
     let pause = tray_pause_label(snapshot).to_string();
 
     let app = app.clone();
@@ -1324,9 +1286,6 @@ fn update_tray_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &RuntimeSnapshot) 
         let Some(items) = app.try_state::<TrayMenuItems<R>>() else {
             return;
         };
-        let _ = items.status.set_text(status);
-        let _ = items.codex_status.set_text(codex);
-        let _ = items.claude_status.set_text(claude);
         let _ = items.toggle_pause.set_text(pause);
     });
 }
@@ -1378,9 +1337,6 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
                 }
             }
         }
-        "send_now" => {
-            trigger_collection(app);
-        }
         "check_updates" => {
             let app = app.clone();
             tauri::async_runtime::spawn(check_for_updates(app, true));
@@ -1403,33 +1359,6 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
     }
 }
 
-fn trigger_collection<R: Runtime>(app: &AppHandle<R>) {
-    let app_handle = app.clone();
-    let paths = app.state::<RuntimePaths>().inner().clone();
-    let shared = app.state::<Arc<SharedState>>().inner().clone();
-
-    // Coalesce cliques: se ja' ha' um envio manual em andamento, ignora os
-    // seguintes (senao cada clique empilharia uma thread bloqueada no cycle_lock).
-    if shared.manual_pending.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    let _ = append_log_line(
-        &paths,
-        "info",
-        "Envio manual solicitado pelo usuario.",
-        None,
-    );
-
-    thread::spawn(move || {
-        // Reseta o flag mesmo em panic (RAII), para nao travar futuros cliques.
-        let _guard = FlagGuard(&shared.manual_pending);
-        // "Enviar agora" sempre envia ao Loki, mesmo com o envio pausado
-        // (respeitando o desligamento por provider em config.envio).
-        let _ = run_collection_cycle(&app_handle, &paths, &shared, true);
-    });
-}
-
 fn start_worker<R: Runtime + 'static>(
     app: AppHandle<R>,
     paths: RuntimePaths,
@@ -1445,7 +1374,7 @@ fn start_worker<R: Runtime + 'static>(
         // Sempre coleta: os dados alimentam o tray, a barra e o widget mesmo com o
         // envio pausado/desabilitado. O proprio ciclo decide, por provider, se
         // envia ao Loki (respeitando a pausa e o config.envio).
-        let _ = run_collection_cycle(&app, &paths, &shared, false);
+        let _ = run_collection_cycle(&app, &paths, &shared);
 
         // Espera ate o proximo ciclo de coleta. A thread ja acordava a cada
         // segundo (para reagir ao stop); aproveitamos esse tick para checar, via
@@ -1521,8 +1450,7 @@ type CollectOutcome = Option<Result<UsageMetric, String>>;
 /// barra e o widget) e envia ao Loki conforme as regras de envio.
 ///
 /// O envio de cada provider acontece quando:
-/// - o envio nao esta' pausado (ou `manual = true`, ex.: "Enviar agora", que
-///   ignora a pausa), **e**
+/// - o envio nao esta' pausado, **e**
 /// - o envio daquele provider esta' habilitado em `config.envio`.
 ///
 /// Ou seja, com o envio pausado/desabilitado a coleta continua normalmente; so' o
@@ -1532,7 +1460,6 @@ fn run_collection_cycle<R: Runtime>(
     app: &AppHandle<R>,
     paths: &RuntimePaths,
     shared: &Arc<SharedState>,
-    manual: bool,
 ) -> Result<(), String> {
     let _lock = shared
         .cycle_lock
@@ -1541,10 +1468,10 @@ fn run_collection_cycle<R: Runtime>(
     let config = read_config(paths);
     let client = http_client();
 
-    // "Enviar agora" (manual) ignora a pausa; o ciclo automatico a respeita. Em
-    // ambos os casos, o desligamento por provider (config.envio) e' respeitado.
+    // O ciclo respeita a pausa geral; o desligamento por provider (config.envio)
+    // tambem e' respeitado.
     let paused = lock_snapshot(shared).paused;
-    let send_allowed = manual || !paused;
+    let send_allowed = !paused;
     let send_codex = send_allowed && config.envio.codex;
     let send_claude = send_allowed && config.envio.claude;
 
@@ -1609,8 +1536,7 @@ fn handle_collected<R: Runtime>(
     match result {
         Ok(metric) => {
             // A coleta sempre atualiza os dados/UI; o envio ao Loki ocorre conforme
-            // as regras de envio (pausa geral + config.envio). "Enviar agora" ignora
-            // a pausa.
+            // as regras de envio (pausa geral + config.envio).
             update_metric(shared, metric.clone());
             if !send_allowed {
                 return false;
@@ -2240,7 +2166,7 @@ fn show_update_window<R: Runtime>(app: &AppHandle<R>) {
         .clone()
         .unwrap_or_else(|| "AiUsageTrayAgent".to_string());
     let result = WebviewWindowBuilder::new(app, "update", WebviewUrl::App("update.html".into()))
-        .title(format!("{app_name} — Atualização disponível"))
+        .title(app_name)
         .inner_size(520.0, 560.0)
         .min_inner_size(420.0, 420.0)
         .center()
@@ -2495,14 +2421,6 @@ fn format_reset(iso: Option<&str>) -> Option<String> {
     } else {
         Some(format!("{minutes}m"))
     }
-}
-
-fn truncate(text: &str, max_len: usize) -> String {
-    if text.chars().count() <= max_len {
-        return text.to_string();
-    }
-
-    text.chars().take(max_len.saturating_sub(3)).collect::<String>() + "..."
 }
 
 fn iso_to_nanos(iso: &str) -> Result<String, String> {

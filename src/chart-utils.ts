@@ -42,7 +42,14 @@ export function placeFixed(node: HTMLElement, x: number, y: number): void {
   node.style.top = py + "px";
 }
 
-// Marca como "on" o botão clicado dentro de `sel`, desmarcando os irmãos.
+// Marca como "on" o botão clicado dentro do grupo `sel`, desmarcando os irmãos.
+// Escopa ao container do PRÓPRIO alvo (target.closest(sel)) para não mexer em
+// botões de mesma classe em outras telas — ".tabs"/".ranges" existem no Dashboard
+// Claude, no Codex (.codex-tabs/.codex-ranges) e nas Configurações (.settings-tabs),
+// e um seletor global apagaria o "on" da aba ativa das outras telas.
 export function setOn(sel: string, target: EventTarget | null): void {
-  document.querySelectorAll(sel + " button").forEach((b) => b.classList.toggle("on", b === target));
+  const el = target instanceof Element ? target : null;
+  const container = el?.closest(sel);
+  if (!container) return;
+  container.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === el));
 }

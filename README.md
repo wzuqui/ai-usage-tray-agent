@@ -18,7 +18,7 @@ O projeto foi feito com:
 - Mostra status resumido no tray
 - No Windows, exibe o uso direto na barra de tarefas
 - No Windows, oferece um **widget flutuante na área de trabalho** com os cards de uso
-- Permite pausar, retomar e forçar envio pelo menu do tray
+- Permite pausar e retomar o envio pelo menu do tray
 
 ## Status atual
 
@@ -142,13 +142,9 @@ O timestamp do Loki é enviado em nanossegundos no campo `values`.
 
 Itens do menu:
 
-- Status atual
-- Codex atual
-- Claude atual
 - **Abrir**: abre a janela do app (mesma ação do clique esquerdo).
 - Abrir `config.json`
 - Abrir pasta de logs
-- Enviar agora
 - Pausar/retomar envio
 - Sair
 
@@ -169,12 +165,14 @@ Primeira tela do menu. Controla o **envio das métricas ao Loki** sem afetar a
 coleta — os dados continuam sendo coletados e exibidos em "Uso atual", no widget
 e na barra mesmo com o envio pausado/desabilitado. Traz:
 
-- **Estado atual** com um indicador "ao vivo" (ponto pulsante quando ativo),
-  **contagem regressiva** do próximo envio automático e o **status de envio de
-  cada provedor** (Claude/Codex: ativado/desativado). Quando **nenhum** provedor
-  está com "Enviar ao Loki" ativado, o indicador troca para **"Nenhum provedor
-  enviando"** (em vez de "Envio ativo"), a contagem regressiva dá lugar a um aviso
-  e o histórico exibe um lembrete para ativar Claude ou Codex em Configurações.
+- O **subtítulo da página** traz a **contagem regressiva** do próximo envio
+  automático (mesmo padrão do "Atualizado há…" do "Uso atual"); some quando o
+  envio está pausado ou sem provedor ativo.
+- **Estado atual** com um indicador "ao vivo" (ponto pulsante quando ativo) e o
+  **status de envio de cada provedor** (Claude/Codex: ativado/desativado). Quando
+  **nenhum** provedor está com "Enviar ao Loki" ativado, o indicador troca para
+  **"Nenhum provedor enviando"** (em vez de "Envio ativo") e o histórico exibe um
+  lembrete para ativar Claude ou Codex em Configurações.
 - **Pausar/retomar envio** (geral): suspende só o envio ao Loki. Persistido em
   `config.json` (`envio.pausado`) e **sincronizado com o menu do tray** — pausar
   pelo tray reflete aqui e vice-versa.
@@ -505,10 +503,11 @@ alimenta as **Novidades** (na tela **Sobre**).
 - Quem já tinha uma versão **sem** o updater precisa instalar manualmente uma vez
   para passar a receber as atualizações automáticas dali em diante.
 
-Para publicar updates, o repositório oficial precisa dos secrets de assinatura
-`TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` configurados em
-Actions. Guarde a chave privada com segurança: sem ela não é possível assinar
-updates que os apps já instalados aceitem.
+Para publicar updates, o repositório oficial precisa do secret de assinatura
+`TAURI_SIGNING_PRIVATE_KEY` configurado em Actions (a chave atual foi gerada sem
+senha, então o secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, referenciado pelo
+workflow, pode ficar vazio). Guarde a chave privada com segurança: sem ela não é
+possível assinar updates que os apps já instalados aceitem.
 
 ## Dashboard Grafana
 
