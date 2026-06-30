@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 use tiny_http::{Header, Method, Request, Response, Server};
 
-use crate::{http_client, read_config, usage_value, RuntimePaths, SharedState};
+use crate::{read_config, usage_value, RuntimePaths, SharedState};
 
 /// Comandos IPC que o servidor HTTP aceita — apenas leitura dos dashboards. Tudo
 /// fora desta lista e' recusado (403), mesmo autenticado.
@@ -229,14 +229,7 @@ fn handle_invoke(app: &AppHandle, paths: &RuntimePaths, mut request: Request, cm
             let days = args.get("days").and_then(Value::as_u64).unwrap_or(30) as u32;
             let start = args.get("start").and_then(Value::as_str).map(str::to_string);
             let end = args.get("end").and_then(Value::as_str).map(str::to_string);
-            let config = read_config(paths);
-            crate::codex_dashboard::collect(
-                &http_client(),
-                &config.providers.codex.auth_json_path,
-                days,
-                start,
-                end,
-            )
+            crate::collect_codex_stats(paths, days, start, end)
         }
         _ => json!({ "error": "comando nao permitido" }),
     };

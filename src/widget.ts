@@ -212,9 +212,11 @@ async function load(): Promise<void> {
 }
 
 // A cada 1s atualiza a contagem regressiva; a cada 2s rebusca o estado (mesmo
-// esquema da tela "Uso atual"). get_widget_state é barato e sem rede.
+// esquema da tela "Uso atual"). get_widget_state é barato e sem rede. Com a
+// janela oculta não há o que atualizar: pula o ciclo (poupa o IPC).
 let tickCount = 0;
 setInterval(() => {
+  if (document.hidden) return;
   tick();
   if (++tickCount % 2 === 0) void load();
 }, 1000);

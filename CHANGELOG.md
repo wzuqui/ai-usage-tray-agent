@@ -26,6 +26,11 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 
 ## [Não lançado]
 
+### Corrigido
+- Dashboard Claude: o painel não fica mais travado até reiniciar o app caso ocorra um erro ao carregar os dados de uso.
+
+## [0.2.40] - 2026-06-30
+
 ### Adicionado
 - Envio de dados: aviso quando **nenhum provedor está com "Enviar ao Loki" ativado** — o indicador muda para "Nenhum provedor enviando" e o histórico mostra um lembrete para ativar Claude ou Codex em Configurações.
 - Envio de dados: o **histórico de envios** agora mostra os **dados enviados** ao Loki em cada envio com sucesso (uso da sessão 5h, uso semanal 7d e o reset), com o payload completo no tooltip.

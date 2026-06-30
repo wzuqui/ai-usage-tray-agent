@@ -1,12 +1,13 @@
 // Tela "Envio de dados": controla o envio das métricas ao Loki sem afetar a
-// coleta. Mostra o estado atual (ativo/pausado), permite pausar/retomar e
-// "Enviar agora" (geral) e ver o histórico dos últimos envios (sucesso/falha),
-// atualizado quase em tempo real. O envio por provedor (Enviar ao Loki) ficou nas
-// abas de cada provedor em Configurações (chama `set_envio_provider` direto).
+// coleta. Mostra o estado atual (ativo/pausado), permite pausar/retomar e ver o
+// histórico dos últimos envios (sucesso/falha), atualizado quase em tempo real. O
+// envio por provedor (Enviar ao Loki) ficou nas abas de cada provedor em
+// Configurações (chama `set_envio_provider` direto); o "Enviar agora" geral é
+// acionado só pelo menu do tray/widget, não há botão nesta tela.
 //
 // Os dados vêm do comando IPC `get_envio_state` (barato, sem rede); as ações usam
-// `set_envio_paused`, `envio_send_now` e `clear_send_log`. O estado da pausa é
-// sincronizado com o menu do tray (mesma fonte no backend).
+// `set_envio_paused` e `clear_send_log`. O estado da pausa é sincronizado com o
+// menu do tray (mesma fonte no backend).
 import { invoke } from "@tauri-apps/api/core";
 import { ICON_CLAUDE, iconCodex, escapeHtml, pctText } from "./usage-format";
 

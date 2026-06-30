@@ -5,6 +5,7 @@
 // A tela carrega ao abrir e refaz a chamada ao trocar o período (30d/7d).
 import { invoke } from "./ipc";
 import { escapeHtml } from "./usage-format";
+import { CUSTOM_LABEL, dkey, dayLabel, fmtShort, normalizeRange, placeFixed, setOn } from "./chart-utils";
 
 interface ModelUsage {
   model: string;
@@ -35,7 +36,6 @@ interface Series {
 }
 
 const PALETTE = ["#10a37f", "#2f6fed", "#5b8df2", "#86abf6", "#f2a35b", "#c77dff", "#8b949e", "#e06c75", "#56b6c2", "#d19a66", "#98c379", "#6e7681"];
-const MONTHS = ["jan.", "fev.", "mar.", "abr.", "mai.", "jun.", "jul.", "ago.", "set.", "out.", "nov.", "dez."];
 
 // Rótulos amigáveis das origens (product surfaces) retornadas pela API.
 const SURFACE_LABELS: Record<string, string> = {
@@ -55,14 +55,9 @@ let tab = "geral"; // geral | surfaces | modelos
 let loading = false;
 let CHART_SERIES: Series[] = [];
 
-const CUSTOM_LABEL = "Personalizado";
 const MAX_DAYS = 90; // limite da API do Codex
 
 const el = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
-const dkey = (d: Date): string =>
-  d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-// "YYYY-MM-DD" → "DD/MM/AA" (rótulo do botão "Personalizado").
-const fmtShort = (key: string): string => { const [y, m, d] = key.split("-"); return d + "/" + m + "/" + y.slice(2); };
 
 function surfaceLabel(key: string): string {
   return SURFACE_LABELS[key] ?? key;
@@ -74,10 +69,6 @@ function modelLabel(m: ModelUsage): string {
 function pct(n: number): string {
   if (n <= 0) return "0%";
   return (n < 10 ? n.toFixed(1) : Math.round(n).toString()) + "%";
-}
-function dayLabel(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.getDate() + " de " + MONTHS[d.getMonth()];
 }
 const dayTotal = (s: Series) => s.segments.reduce((t, seg) => t + seg.val, 0);
 
@@ -158,16 +149,6 @@ function renderCards(series: Series[]): void {
   el("codex-cards").innerHTML = cards
     .map(([l, v]) => '<div class="card"><div class="lbl">' + l + '</div><div class="val">' + v + "</div></div>")
     .join("");
-}
-
-// ----- tooltip -----
-function placeFixed(node: HTMLElement, x: number, y: number): void {
-  const r = node.getBoundingClientRect();
-  let px = x + 14, py = y - r.height - 10;
-  if (px + r.width > innerWidth - 8) px = x - r.width - 14;
-  if (py < 8) py = y + 16;
-  node.style.left = px + "px";
-  node.style.top = py + "px";
 }
 
 function renderChart(series: Series[]): void {
@@ -268,11 +249,10 @@ function setCustomOpen(open: boolean): void {
   customOpen = open;
   el("codex-range-custom").classList.toggle("hide", !open);
 }
-// Range normalizado (inverte se "de" > "até").
+// Range normalizado lendo o estado deste módulo; a lógica pura vive em
+// chart-utils (normalizeRange).
 function customRange(): { from: string; to: string } {
-  let from = customFrom, to = customTo;
-  if (from && to && from > to) [from, to] = [to, from];
-  return { from, to };
+  return normalizeRange(customFrom, customTo);
 }
 // Pré-preenche os campos (últimos 30 dias) e limita o seletor à janela suportada
 // pelo Codex: dos últimos 90 dias até hoje.
@@ -295,10 +275,6 @@ function updateApplyState(): void {
   const from = el("codex-range-from") as HTMLInputElement;
   const to = el("codex-range-to") as HTMLInputElement;
   (el("codex-range-apply") as HTMLButtonElement).disabled = !(from.value && to.value);
-}
-
-function setOn(sel: string, target: EventTarget | null): void {
-  document.querySelectorAll(sel + " button").forEach((b) => b.classList.toggle("on", b === target));
 }
 
 // Skeleton (shimmer) enquanto a chamada de rede não volta — substitui o antigo

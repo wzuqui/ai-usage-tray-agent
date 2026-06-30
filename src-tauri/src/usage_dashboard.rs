@@ -11,7 +11,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
     time::{Instant, SystemTime},
 };
 
@@ -64,7 +64,8 @@ struct CacheEntry {
     agg: FileAgg,
 }
 
-static FILE_CACHE: Mutex<Option<HashMap<PathBuf, CacheEntry>>> = Mutex::new(None);
+static FILE_CACHE: LazyLock<Mutex<HashMap<PathBuf, CacheEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn claude_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".claude"))
@@ -271,8 +272,9 @@ pub(crate) fn collect_stats() -> Value {
 
     let mut reparsed = 0usize;
     {
-        let mut guard = FILE_CACHE.lock().unwrap();
-        let cache = guard.get_or_insert_with(HashMap::new);
+        // Recupera o lock mesmo se uma coleta anterior tiver panicado segurando-o
+        // (poison): senao todo get_stats subsequente passaria a panicar.
+        let mut cache = FILE_CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
         for file in &files {
             let Ok(meta) = fs::metadata(file) else {
@@ -316,43 +318,41 @@ pub(crate) fn collect_stats() -> Value {
     let mut session_first_ts: HashMap<String, String> = HashMap::new();
 
     {
-        let guard = FILE_CACHE.lock().unwrap();
-        if let Some(cache) = guard.as_ref() {
-            for entry in cache.values() {
-                for (date, src) in &entry.agg.days {
-                    if date.as_str() <= cutoff.as_str() {
-                        continue; // já consolidado no baseline
-                    }
-                    let day = days.entry(date.clone()).or_default();
-                    day.msgs += src.msgs;
-                    day.user_msgs += src.user_msgs;
-                    day.tools += src.tools;
-                    for (model, totals) in &src.models {
-                        let acc = day.models.entry(model.clone()).or_default();
-                        acc.input += totals.input;
-                        acc.out += totals.out;
-                        acc.cache_read += totals.cache_read;
-                        acc.cache_create += totals.cache_create;
-                    }
-                    for (name, count) in &src.tools_by_name {
-                        *day.tools_by_name.entry(name.clone()).or_default() += count;
-                    }
-                    for (name, proj) in &src.projects {
-                        let acc = day.projects.entry(name.clone()).or_default();
-                        acc.msgs += proj.msgs;
-                        acc.tokens += proj.tokens;
-                    }
+        let cache = FILE_CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for entry in cache.values() {
+            for (date, src) in &entry.agg.days {
+                if date.as_str() <= cutoff.as_str() {
+                    continue; // já consolidado no baseline
                 }
-                for (session_id, ts) in &entry.agg.sessions {
-                    session_first_ts
-                        .entry(session_id.clone())
-                        .and_modify(|current| {
-                            if ts < current {
-                                *current = ts.clone();
-                            }
-                        })
-                        .or_insert_with(|| ts.clone());
+                let day = days.entry(date.clone()).or_default();
+                day.msgs += src.msgs;
+                day.user_msgs += src.user_msgs;
+                day.tools += src.tools;
+                for (model, totals) in &src.models {
+                    let acc = day.models.entry(model.clone()).or_default();
+                    acc.input += totals.input;
+                    acc.out += totals.out;
+                    acc.cache_read += totals.cache_read;
+                    acc.cache_create += totals.cache_create;
                 }
+                for (name, count) in &src.tools_by_name {
+                    *day.tools_by_name.entry(name.clone()).or_default() += count;
+                }
+                for (name, proj) in &src.projects {
+                    let acc = day.projects.entry(name.clone()).or_default();
+                    acc.msgs += proj.msgs;
+                    acc.tokens += proj.tokens;
+                }
+            }
+            for (session_id, ts) in &entry.agg.sessions {
+                session_first_ts
+                    .entry(session_id.clone())
+                    .and_modify(|current| {
+                        if ts < current {
+                            *current = ts.clone();
+                        }
+                    })
+                    .or_insert_with(|| ts.clone());
             }
         }
     }
