@@ -1,8 +1,9 @@
 // Tela "Uso atual": mostra o uso de sessão (5h) e semanal (7d) do Claude e do
 // Codex, com barra de progresso, tempo restante para o reset (contagem ao vivo)
-// e a data/hora exata do reset. Os dados vêm do comando IPC `get_usage`, que lê
-// o mesmo snapshot usado pelo tray e pela barra de tarefas (sem rede). O botão
-// "Atualizar agora" chama `force_collect`, que força uma coleta nova.
+// e a data/hora exata do reset. O subtítulo da página traz o "Atualizado há…" do
+// dado em cache. Os dados vêm do comando IPC `get_usage`, que lê o mesmo snapshot
+// usado pelo tray e pela barra de tarefas (sem rede); a tela rebusca sozinha a
+// cada poucos segundos (não há mais botão de atualização manual).
 import { invoke } from "./ipc";
 import {
   barColor,
@@ -34,13 +35,13 @@ const isActive = (): boolean => !!el("view-usage")?.classList.contains("on");
 function fmtFresh(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (Number.isNaN(s)) return "";
-  if (s < 2) return "atualizado agora";
-  if (s < 60) return `atualizado há ${s}s`;
+  if (s < 2) return "Atualizado agora";
+  if (s < 60) return `Atualizado há ${s}s`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `atualizado há ${m}min`;
+  if (m < 60) return `Atualizado há ${m}min`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `atualizado há ${h}h`;
-  return `atualizado há ${Math.floor(h / 24)}d`;
+  if (h < 24) return `Atualizado há ${h}h`;
+  return `Atualizado há ${Math.floor(h / 24)}d`;
 }
 
 /// Bloco de uma janela (sessão ou semanal): % + barra + reset (tempo e data).
@@ -95,13 +96,38 @@ function renderProvider(label: string, prov: ProviderUsage): string {
     return `<div class="uprov error">${head('<span class="ubadge err">erro</span>')}
       <div class="uprov-note err">${escapeHtml(m.erro ?? "Falha na coleta.")}</div></div>`;
   }
-  const meta = `<span class="u-fresh" data-collected="${escapeHtml(m.coletado_em)}">${fmtFresh(m.coletado_em)}</span>`;
-  return `<div class="uprov">${head(meta)}
+  // O "atualizado há…" foi para o subtítulo da página (renderSub); o card não o repete.
+  return `<div class="uprov">${head("")}
     <div class="uwins">
       ${windowBlock("Sessão (5h)", m.uso_percentual, m.reset_em, true)}
       ${windowBlock("Semanal (7d)", m.uso_percentual_7d, m.reset_em_7d, false)}
     </div>
   </div>`;
+}
+
+/// Timestamp de coleta mais recente entre os provedores habilitados com dado
+/// válido (ambos coletam no mesmo ciclo, então normalmente coincidem). `null`
+/// quando nenhum provedor tem dado coletado ainda.
+function freshestCollected(): string | null {
+  if (!DATA) return null;
+  let best: string | null = null;
+  for (const prov of [DATA.claude, DATA.codex]) {
+    const m = prov.metric;
+    if (!prov.habilitado || !m || m.status === "erro" || m.erro || !m.coletado_em) continue;
+    if (best === null || new Date(m.coletado_em).getTime() > new Date(best).getTime()) {
+      best = m.coletado_em;
+    }
+  }
+  return best;
+}
+
+/// Subtítulo da página: "atualizado há…" do dado em cache (antes ficava em cada
+/// card). Vazio quando ainda não há coleta válida.
+function renderSub(): void {
+  const iso = freshestCollected();
+  el("usage-sub").innerHTML = iso
+    ? `<span class="u-fresh" data-collected="${escapeHtml(iso)}">${fmtFresh(iso)}</span>`
+    : "";
 }
 
 /// Atualiza só os textos dependentes do tempo (contagem regressiva e frescor),
@@ -122,6 +148,7 @@ function render(): void {
     : "";
   el("usage-cards").innerHTML =
     renderProvider("Claude", DATA.claude) + renderProvider("Codex", DATA.codex);
+  renderSub();
   el("usage-foot").textContent = "";
   tick();
 }
@@ -137,29 +164,10 @@ export async function loadUsage(): Promise<void> {
   render();
 }
 
-/// Força uma coleta nova (também envia ao Loki) e mostra o resultado.
-async function refresh(): Promise<void> {
-  const btn = el("usage-refresh") as HTMLButtonElement;
-  const prev = btn.textContent ?? "Atualizar agora";
-  btn.disabled = true;
-  btn.textContent = "Atualizando…";
-  try {
-    DATA = await invoke<Usage>("force_collect");
-    render();
-  } catch (e) {
-    el("usage-foot").textContent = "Falha ao atualizar: " + (e instanceof Error ? e.message : String(e));
-  } finally {
-    btn.disabled = false;
-    btn.textContent = prev;
-  }
-}
-
 /// Liga os eventos (uma vez), inicia o tick de 1s e dispara o primeiro load.
 export function initUsage(): void {
   if (initialized) { void loadUsage(); return; }
   initialized = true;
-
-  (el("usage-refresh") as HTMLButtonElement).onclick = () => void refresh();
 
   // A cada 1s atualiza a contagem regressiva e o frescor (do dado em cache); a
   // cada 2s rebusca o snapshot. O rebusque precisa ser mais frequente que o

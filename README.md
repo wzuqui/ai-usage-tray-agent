@@ -171,13 +171,18 @@ e na barra mesmo com o envio pausado/desabilitado. Traz:
 
 - **Estado atual** com um indicador "ao vivo" (ponto pulsante quando ativo),
   **contagem regressiva** do próximo envio automático e o **status de envio de
-  cada provedor** (Claude/Codex: ativado/desativado).
+  cada provedor** (Claude/Codex: ativado/desativado). Quando **nenhum** provedor
+  está com "Enviar ao Loki" ativado, o indicador troca para **"Nenhum provedor
+  enviando"** (em vez de "Envio ativo"), a contagem regressiva dá lugar a um aviso
+  e o histórico exibe um lembrete para ativar Claude ou Codex em Configurações.
 - **Pausar/retomar envio** (geral): suspende só o envio ao Loki. Persistido em
   `config.json` (`envio.pausado`) e **sincronizado com o menu do tray** — pausar
   pelo tray reflete aqui e vice-versa.
 - **Histórico de envios**: data/hora e status (sucesso/falha) dos últimos envios,
-  atualizado quase em tempo real; cada **nova entrada pisca** ao aparecer. Botão
-  **Limpar** zera a lista.
+  atualizado quase em tempo real; cada **nova entrada pisca** ao aparecer. Nos
+  envios com sucesso, a entrada mostra os **dados enviados** ao Loki (uso da
+  sessão 5h, uso semanal 7d e o reset), com o **payload completo** disponível no
+  tooltip da linha. Botão **Limpar** zera a lista.
 
 O liga/desliga do envio **por provedor** (`envio.claude`, `envio.codex`) fica nas
 **Configurações**, na aba de cada provedor (opção "Enviar ao Loki"). Tudo em
@@ -193,10 +198,10 @@ Os dados vêm do comando `get_envio_state`; as ações usam `set_envio_paused`,
 
 Mostra, para **Claude** e **Codex**, o uso da **sessão
 (5h)** e **semanal (7d)** com barra de progresso, tempo restante para o reset
-(contagem regressiva ao vivo) e o horário/data exatos do próximo reset. Traz
-ainda "atualizado há Xs" e o botão **Atualizar agora** (força uma coleta nova).
-Os dados vêm do comando `get_usage` (lê o mesmo snapshot do tray/barra, sem
-rede); `force_collect` força um ciclo novo.
+(contagem regressiva ao vivo) e o horário/data exatos do próximo reset. O
+subtítulo da página traz o **"Atualizado há Xs"** do dado em cache (sobe ao vivo
+e zera a cada nova coleta). Os dados vêm do comando `get_usage` (lê o mesmo
+snapshot do tray/barra, sem rede).
 
 ### Dashboard Claude
 
@@ -547,7 +552,7 @@ src/
   main.ts             # shell: navegacao entre Envio de dados, Uso atual, Dashboards, Configuracoes e Sobre
   ipc.ts              # camada de IPC unificada: invoke nativo (Tauri) ou fetch /api/invoke (navegador)
   envio.ts            # tela "Envio de dados" (pausa/envio por provedor, historico)
-  usage.ts            # tela "Uso atual" (consome get_usage/force_collect)
+  usage.ts            # tela "Uso atual" (consome get_usage; rebusca sozinha, sem botão manual)
   usage-format.ts     # helpers de formatacao/icones compartilhados (uso, reset, cores)
   dashboard.ts        # dashboard de uso do Claude Code (consome get_stats)
   codex-dashboard.ts  # dashboard de uso do Codex (consome get_codex_stats)

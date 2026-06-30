@@ -27,6 +27,21 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 ## [Não lançado]
 
 ### Adicionado
+- Envio de dados: aviso quando **nenhum provedor está com "Enviar ao Loki" ativado** — o indicador muda para "Nenhum provedor enviando" e o histórico mostra um lembrete para ativar Claude ou Codex em Configurações.
+- Envio de dados: o **histórico de envios** agora mostra os **dados enviados** ao Loki em cada envio com sucesso (uso da sessão 5h, uso semanal 7d e o reset), com o payload completo no tooltip.
+
+### Alterado
+- Uso atual: o indicador **"Atualizado há…"** saiu dos cards para o **subtítulo da página** (aparece uma única vez).
+
+### Removido
+- Uso atual: botão **Atualizar agora** (a tela já atualiza sozinha a cada poucos segundos).
+
+### Corrigido
+- Envio de dados: o histórico não pisca mais todas as linhas ao voltar de outra aba — só novas entradas que chegam com a tela aberta são destacadas.
+
+## [0.2.39] - 2026-06-29
+
+### Adicionado
 - Configurações: opção **Enviar ao Loki** em cada provedor (Codex e Claude).
 - Envio de dados: indicador "ao vivo" com **contagem regressiva** do próximo envio e o **status de envio de cada provedor**; o histórico **destaca** as novas entradas.
 

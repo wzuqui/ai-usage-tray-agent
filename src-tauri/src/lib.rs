@@ -346,6 +346,11 @@ struct SendLogEntry {
     status: String,
     /// Mensagem de erro quando `status` e' "falha"; `None` no sucesso.
     detalhe: Option<String>,
+    /// Payload (dados) efetivamente enviado ao Loki, presente nos envios com
+    /// sucesso — para o historico mostrar quais dados foram enviados. `None` nas
+    /// falhas.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<Value>,
 }
 
 /// Quantas entradas de envio manter no anel em memoria.
@@ -1616,7 +1621,7 @@ fn handle_collected<R: Runtime>(
                 return false;
             }
             match send_metric_to_loki(client, config, &metric) {
-                Ok(()) => {
+                Ok(body) => {
                     let _ = append_log_line(
                         paths,
                         "info",
@@ -1630,7 +1635,9 @@ fn handle_collected<R: Runtime>(
                             "reset_em_7d": metric.reset_em_7d
                         })),
                     );
-                    push_send_log(shared, ferramenta, "sucesso", None);
+                    // Guarda o payload enviado no historico, para a tela "Envio de
+                    // dados" mostrar quais dados foram ao Loki.
+                    push_send_log(shared, ferramenta, "sucesso", None, Some(body));
                     mark_success(shared);
                     false
                 }
@@ -1641,7 +1648,7 @@ fn handle_collected<R: Runtime>(
                         "Falha ao enviar metrica para o Loki.",
                         Some(json!({ "ferramenta": ferramenta, "error": error })),
                     );
-                    push_send_log(shared, ferramenta, "falha", Some(error.clone()));
+                    push_send_log(shared, ferramenta, "falha", Some(error.clone()), None);
                     record_runtime_error(app, &error);
                     true
                 }
@@ -1826,7 +1833,14 @@ fn host_name() -> String {
     .clone()
 }
 
-fn send_metric_to_loki(client: &Client, config: &AppConfig, metric: &UsageMetric) -> Result<(), String> {
+/// Envia a metrica ao Loki. Em caso de sucesso devolve o **body** (payload
+/// interno) efetivamente enviado, para que o historico de envios mostre
+/// exatamente quais dados foram ao Loki.
+fn send_metric_to_loki(
+    client: &Client,
+    config: &AppConfig,
+    metric: &UsageMetric,
+) -> Result<Value, String> {
     if config.loki.url.trim().is_empty() {
         return Err("URL do Loki nao configurada.".to_string());
     }
@@ -1881,7 +1895,7 @@ fn send_metric_to_loki(client: &Client, config: &AppConfig, metric: &UsageMetric
         .map_err(|error| format!("Falha HTTP ao enviar para Loki: {error}"))?;
 
     if response.status().is_success() {
-        Ok(())
+        Ok(body)
     } else {
         Err(format!("Loki retornou status HTTP {}.", response.status()))
     }
@@ -1989,13 +2003,20 @@ fn mark_success(shared: &Arc<SharedState>) {
 
 /// Registra uma tentativa de envio no historico em memoria (anel). Mantem no
 /// maximo `SEND_LOG_MAX` entradas, descartando as mais antigas.
-fn push_send_log(shared: &Arc<SharedState>, ferramenta: &str, status: &str, detalhe: Option<String>) {
+fn push_send_log(
+    shared: &Arc<SharedState>,
+    ferramenta: &str,
+    status: &str,
+    detalhe: Option<String>,
+    payload: Option<Value>,
+) {
     let mut snapshot = lock_snapshot(shared);
     snapshot.send_log.push(SendLogEntry {
         timestamp: Utc::now().to_rfc3339(),
         ferramenta: ferramenta.to_string(),
         status: status.to_string(),
         detalhe,
+        payload,
     });
     let excess = snapshot.send_log.len().saturating_sub(SEND_LOG_MAX);
     if excess > 0 {
