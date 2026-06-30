@@ -556,6 +556,7 @@ src/
   usage-format.ts     # helpers de formatacao/icones compartilhados (uso, reset, cores)
   dashboard.ts        # dashboard de uso do Claude Code (consome get_stats)
   codex-dashboard.ts  # dashboard de uso do Codex (consome get_codex_stats)
+  chart-utils.ts      # helpers compartilhados pelos dois dashboards (rotulos de data, tooltip, periodo)
   sobre.ts            # tela "Sobre" (versao, status de atualizacao via update-status, novidades)
   update-status.ts    # verifica atualizacao ao abrir o app e liga o selo no item "Sobre" do menu
   novidades.ts        # historico de versoes (Novidades), renderizado na tela Sobre (get_changelog)
@@ -571,7 +572,7 @@ src-tauri/
     lib.rs             # tray, worker de coleta, janela do widget, janela do OTA e comandos IPC
                        # (get_stats/get_settings/save_settings/get_usage/force_collect/
                        #  get_widget_state/read_widget_background/pick_widget_background/
-                       #  get_envio_state/set_envio_paused/set_envio_provider/envio_send_now/clear_send_log/
+                       #  get_envio_state/set_envio_paused/set_envio_provider/clear_send_log/
                        #  check_updates_now/check_update_status/get_pending_update/install_update/
                        #  open_update_window/get_changelog/open_external/show_app_menu)
     main.rs

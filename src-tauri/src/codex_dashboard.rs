@@ -75,10 +75,12 @@ pub fn collect(
         Err(error) => return json!({ "error": format!("auth.json invalido: {error}") }),
     };
 
-    let tokens = auth.tokens;
-    let token = tokens
-        .as_ref()
-        .and_then(|value| value.access_token.clone())
+    // Consome `auth.tokens` uma unica vez (sem clonar o access_token): extrai os
+    // dois Option de uma vez e usa cada um adiante.
+    let (access_token, account_id) = auth
+        .tokens
+        .map_or((None, None), |value| (value.access_token, value.account_id));
+    let token = access_token
         .or_else(|| auth.openai.and_then(|value| value.access))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -90,8 +92,7 @@ pub fn collect(
             })
         }
     };
-    let account_id = tokens
-        .and_then(|value| value.account_id)
+    let account_id = account_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 

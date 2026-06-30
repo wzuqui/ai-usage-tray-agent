@@ -3,6 +3,11 @@
 // seções de versão e comparação de versões. A fonte é o CHANGELOG.md (buscado no
 // backend via `get_changelog`).
 
+// Fonte única de escapeHtml (usage-format também escapa aspas); re-exportado
+// porque update.ts e novidades.ts importam daqui.
+import { escapeHtml } from "./usage-format";
+export { escapeHtml };
+
 export interface ChangelogEntry {
   /** "0.2.26" para seções de versão; null quando é a [Não lançado]. */
   version: string | null;
@@ -18,13 +23,6 @@ export interface ChangelogEntry {
 // Suporta só o necessário para o changelog: títulos (#..####), listas (-/*),
 // **negrito**, `código` e parágrafos. O conteúdo é escapado ANTES de qualquer
 // substituição, então não há injeção de HTML mesmo que o changelog mude.
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 function inline(s: string): string {
   return s
     .replace(/`([^`]+)`/g, "<code>$1</code>")

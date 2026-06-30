@@ -521,7 +521,6 @@ pub fn run() {
             get_envio_state,
             set_envio_paused,
             set_envio_provider,
-            envio_send_now,
             clear_send_log,
             check_updates_now,
             get_pending_update,
@@ -789,18 +788,30 @@ async fn get_codex_stats(
 ) -> Value {
     tauri::async_runtime::spawn_blocking(move || {
         let paths = app.state::<RuntimePaths>().inner().clone();
-        let config = read_config(&paths);
-        let client = http_client();
-        codex_dashboard::collect(
-            &client,
-            &config.providers.codex.auth_json_path,
-            days,
-            start,
-            end,
-        )
+        collect_codex_stats(&paths, days, start, end)
     })
     .await
     .unwrap_or_else(|error| json!({ "error": error.to_string() }))
+}
+
+/// Coleta o historico de uso do Codex (rede): le' o `auth_json_path` do config e
+/// delega para `codex_dashboard::collect` com o cliente HTTP compartilhado.
+/// Compartilhado pelo comando nativo `get_codex_stats` e pelo handler HTTP, que
+/// antes duplicavam esta logica.
+pub(crate) fn collect_codex_stats(
+    paths: &RuntimePaths,
+    days: u32,
+    start: Option<String>,
+    end: Option<String>,
+) -> Value {
+    let config = read_config(paths);
+    codex_dashboard::collect(
+        &http_client(),
+        &config.providers.codex.auth_json_path,
+        days,
+        start,
+        end,
+    )
 }
 
 /// Estado exposto a' tela "Envio de dados": pausa geral, envio por provider
@@ -878,22 +889,6 @@ fn set_envio_provider(
         .map_err(|error| format!("falha ao salvar config.json: {error}"))?;
     let _ = refresh_tray(&app, shared.inner());
     Ok(envio_value(paths.inner(), shared.inner()))
-}
-
-/// "Enviar agora" (geral) a partir da tela: forca uma coleta+envio ignorando a
-/// pausa (respeitando o desligamento por provider), igual ao item do tray. Roda
-/// em `spawn_blocking` (rede sincrona) e devolve o estado ja' atualizado, com o
-/// historico contendo o resultado do envio.
-#[tauri::command]
-async fn envio_send_now(app: AppHandle) -> Value {
-    tauri::async_runtime::spawn_blocking(move || {
-        let paths = app.state::<RuntimePaths>().inner().clone();
-        let shared = app.state::<Arc<SharedState>>().inner().clone();
-        let _ = run_collection_cycle(&app, &paths, &shared, true);
-        envio_value(&paths, &shared)
-    })
-    .await
-    .unwrap_or_else(|error| json!({ "error": error.to_string() }))
 }
 
 /// Limpa o historico de envios em memoria. Devolve o estado ja' atualizado.
@@ -2340,11 +2335,7 @@ async fn get_changelog() -> Result<String, String> {
         "https://raw.githubusercontent.com/wzuqui/ai-usage-tray-agent/main/CHANGELOG.md";
 
     tauri::async_runtime::spawn_blocking(|| {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|error| error.to_string())?;
-        let response = client
+        let response = http_client()
             .get(URL)
             .header("User-Agent", "ai-usage-tray-agent")
             .send()

@@ -4,6 +4,7 @@
 // original (cards, heatmap, gráfico de modelos), só tipada em TypeScript.
 import { invoke } from "./ipc";
 import { escapeHtml } from "./usage-format";
+import { CUSTOM_LABEL, dkey, dayLabel, fmtShort, normalizeRange, placeFixed, setOn } from "./chart-utils";
 
 interface ModelTotals {
   in: number;
@@ -29,16 +30,10 @@ interface SessionEntry {
   date: string;
   hour: number | null;
 }
-interface Baseline {
-  lastComputedDate: string;
-  hourCounts: Record<string, number>;
-}
+// Campos extras do payload (parseMs, files, reparsed, baseline) são ignorados
+// pela UI; só declaramos o que render() consome.
 interface Stats {
   generatedAt: string;
-  parseMs: number;
-  files: number;
-  reparsed: number;
-  baseline: Baseline | null;
   days: DayStats[];
   sessions: SessionEntry[];
   error?: string;
@@ -59,7 +54,6 @@ interface ChartSeries {
 // ciano, rosa, cinza) — antes era um degradê de azul, com pouco contraste entre
 // modelos adjacentes no gráfico empilhado.
 const PALETTE = ["#4c8dff", "#e0816f", "#7fc99a", "#c9a0f0", "#e6c34a", "#5bd1d4", "#f08fb0", "#9aa0a6"];
-const MONTHS = ["jan.", "fev.", "mar.", "abr.", "mai.", "jun.", "jul.", "ago.", "set.", "out.", "nov.", "dez."];
 
 let DATA: Stats | null = null;
 let range = "30";
@@ -93,26 +87,10 @@ function abbr(n: number): string {
   return String(Math.round(n));
 }
 const int = (n: number) => n.toLocaleString("pt-BR");
-const dkey = (d: Date) =>
-  d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-function dayLabel(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.getDate() + " de " + MONTHS[d.getMonth()];
-}
-// "YYYY-MM-DD" → "DD/MM/AA" (usado no rótulo do botão "Personalizado").
-function fmtShort(key: string): string {
-  const [y, m, d] = key.split("-");
-  return d + "/" + m + "/" + y.slice(2);
-}
-const CUSTOM_LABEL = "Personalizado";
-
-// Range personalizado normalizado (inverte se "de" > "até"); strings vazias =
-// limite aberto.
+// Range personalizado normalizado, lendo o estado deste módulo; a lógica pura
+// (inversão de "de"/"até") vive em chart-utils (normalizeRange).
 function customRange(): { from: string; to: string } {
-  let from = customFrom;
-  let to = customTo;
-  if (from && to && from > to) [from, to] = [to, from];
-  return { from, to };
+  return normalizeRange(customFrom, customTo);
 }
 
 function filtered(): { days: DayStats[]; sessions: SessionEntry[] } {
@@ -210,16 +188,6 @@ function renderHeat(days: DayStats[]): void {
       dayLabel(key) + " — " + int(v) + '"></div>');
   }
   el("heat").innerHTML = cells.join("");
-}
-
-// ----- tooltips -----
-function placeFixed(node: HTMLElement, x: number, y: number): void {
-  const r = node.getBoundingClientRect();
-  let px = x + 14, py = y - r.height - 10;
-  if (px + r.width > innerWidth - 8) px = x - r.width - 14;
-  if (py < 8) py = y + 16;
-  node.style.left = px + "px";
-  node.style.top = py + "px";
 }
 
 function renderChart(days: DayStats[]): void {
@@ -375,10 +343,6 @@ function render(): void {
   el("foot").textContent = "Atualizado " + new Date(DATA.generatedAt).toLocaleTimeString("pt-BR");
 }
 
-function setOn(sel: string, target: EventTarget | null): void {
-  document.querySelectorAll(sel + " button").forEach((b) => b.classList.toggle("on", b === target));
-}
-
 /// Busca os dados pelo IPC e re-renderiza. Barata em chamadas repetidas (o
 /// backend mantém cache por arquivo), então pode ser chamada ao reabrir a view.
 export async function loadDashboard(): Promise<void> {
@@ -477,8 +441,7 @@ export function initDashboard(): void {
     if (!customOpen) return;
     const t = e.target as Node;
     const pop = el("range-custom");
-    const btn = document.querySelector('.ranges button[data-r="custom"]');
-    if (pop.contains(t) || btn?.contains(t)) return;
+    if (pop.contains(t) || customBtn.contains(t)) return;
     setCustomOpen(false);
   });
   document.addEventListener("keydown", (e) => {
