@@ -8,17 +8,29 @@
 // `set_envio_paused`, `envio_send_now` e `clear_send_log`. O estado da pausa é
 // sincronizado com o menu do tray (mesma fonte no backend).
 import { invoke } from "@tauri-apps/api/core";
-import { ICON_CLAUDE, iconCodex, escapeHtml } from "./usage-format";
+import { ICON_CLAUDE, iconCodex, escapeHtml, pctText } from "./usage-format";
 
 interface ProviderEnvio {
   habilitado: boolean;
   enviar: boolean;
+}
+// Payload (dados) enviado ao Loki, anexado às entradas de sucesso para que o
+// histórico mostre exatamente o que foi enviado. Espelha o body montado no backend.
+interface SendPayload {
+  uso_percentual?: number;
+  restante_percentual?: number;
+  status?: string;
+  reset_em?: string | null;
+  uso_percentual_7d?: number | null;
+  restante_percentual_7d?: number | null;
+  reset_em_7d?: string | null;
 }
 interface SendLogEntry {
   timestamp: string;
   ferramenta: string;
   status: string; // "sucesso" | "falha"
   detalhe: string | null;
+  payload?: SendPayload | null;
 }
 interface EnvioState {
   paused: boolean;
@@ -33,13 +45,20 @@ interface EnvioState {
 let DATA: EnvioState | null = null;
 let initialized = false;
 let tickCount = 0;
-// Chaves do histórico já vistas, para piscar só as entradas NOVAS (e nunca a
-// lista inteira na primeira renderização).
+// Chaves do histórico já vistas, para piscar só as entradas NOVAS.
 const seenLog = new Set<string>();
-let logInitialized = false;
+// O "piscar" só é armado durante o poll ao vivo (pollEnvio). As renderizações de
+// carga (loadEnvio, ao entrar na aba / focar a janela) são baseline: sincronizam
+// o seenLog SEM piscar — senão, ao voltar de outra aba, todas as entradas que
+// chegaram enquanto a tela estava inativa piscariam de uma vez.
+let flashArmed = false;
 
 const el = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 const isActive = (): boolean => !!el("view-envio")?.classList.contains("on");
+
+/// Nenhum provedor com "Enviar ao Loki" ativado: mesmo sem pausa, nada chega ao
+/// Loki. A tela sinaliza isso (badge, sub-texto e aviso no histórico).
+const noneSending = (): boolean => !!DATA && !DATA.claude.enviar && !DATA.codex.enviar;
 
 /// Hora exata local de um envio: "14:29:05" se for hoje, ou "22/06 14:29" senão.
 function fmtLogTime(iso: string): string {
@@ -60,6 +79,24 @@ const iconFor = (ferramenta: string): string =>
 const nameFor = (ferramenta: string): string =>
   ferramenta === "codex" ? "Codex" : "Claude";
 
+/// Resumo legível do payload enviado ao Loki, exibido sob a linha do envio. Mostra
+/// uso da sessão (5h), semanal (7d) e o reset; o `title` traz o payload cru (JSON),
+/// para inspecionar exatamente o que foi enviado. "" quando não há payload.
+function renderPayload(p: SendPayload | null | undefined): string {
+  if (!p) return "";
+  // Cada janela mostra seu próprio reset (sessão = reset_em, semanal = reset_em_7d).
+  const resetTxt = (iso: string | null | undefined): string =>
+    iso ? ` (reset ${escapeHtml(fmtLogTime(iso))})` : "";
+  const parts: string[] = [];
+  if (typeof p.uso_percentual === "number")
+    parts.push(`Sessão (5h): <strong>${pctText(p.uso_percentual)}%</strong>${resetTxt(p.reset_em)}`);
+  if (typeof p.uso_percentual_7d === "number")
+    parts.push(`Semanal (7d): <strong>${pctText(p.uso_percentual_7d)}%</strong>${resetTxt(p.reset_em_7d)}`);
+  if (!parts.length) return "";
+  const raw = escapeHtml(JSON.stringify(p));
+  return `<div class="envio-log-payload" title="${raw}">${parts.join(" · ")}</div>`;
+}
+
 /// Texto dinâmico do próximo envio automático: conta regressiva dentro do
 /// intervalo, ancorada no último envio com sucesso (cicla via módulo, então
 /// nunca trava). "" quando pausado.
@@ -79,12 +116,20 @@ function nextSendText(): string {
 function renderState(): void {
   if (!DATA) return;
   const paused = DATA.paused;
-  const badge = paused
-    ? '<span class="envio-badge paused">⏸ Envio pausado</span>'
-    : '<span class="envio-badge active"><span class="envio-live"></span>Envio ativo</span>';
-  const sub = paused
-    ? "Os dados continuam sendo coletados; nada é enviado ao Loki."
-    : `<span id="envio-next">${nextSendText()}</span>`;
+  const none = noneSending();
+  // Prioridade: pausa (controle geral) > nenhum provedor enviando > ativo.
+  let badge: string;
+  let sub: string;
+  if (paused) {
+    badge = '<span class="envio-badge paused">⏸ Envio pausado</span>';
+    sub = "Os dados continuam sendo coletados; nada é enviado ao Loki.";
+  } else if (none) {
+    badge = '<span class="envio-badge none">⚠ Nenhum provedor enviando</span>';
+    sub = 'Nenhum provedor está com "Enviar ao Loki" ativado.';
+  } else {
+    badge = '<span class="envio-badge active"><span class="envio-live"></span>Envio ativo</span>';
+    sub = `<span id="envio-next">${nextSendText()}</span>`;
+  }
   const provState = (label: string, on: boolean): string =>
     `${label}: <span class="envio-prov-state ${on ? "on" : "off"}">${on ? "ativado" : "desativado"}</span>`;
   const provStatus = `${provState("Claude", DATA.claude.enviar)} · ${provState("Codex", DATA.codex.enviar)}`;
@@ -123,30 +168,41 @@ function renderBanner(): void {
 /// Histórico de envios (mais recentes no topo). Atualiza a cada rebusca.
 function renderLog(): void {
   if (!DATA) return;
+  // Aviso fixo no topo do histórico quando nenhum provedor está enviando.
+  const notice = noneSending()
+    ? '<div class="envio-none-note">⚠ Nenhum provedor habilitado para envio. Ative "Enviar ao Loki" no Claude ou no Codex em <strong>Configurações</strong> para que os envios voltem a acontecer.</div>'
+    : "";
   if (!DATA.log.length) {
-    el("envio-log").innerHTML = '<div class="envio-empty">Nenhum envio registrado ainda.</div>';
+    el("envio-log").innerHTML = notice + '<div class="envio-empty">Nenhum envio registrado ainda.</div>';
     return;
   }
   const rows = DATA.log
     .map((e) => {
       const ok = e.status === "sucesso";
       const key = `${e.timestamp}|${e.ferramenta}|${e.status}`;
-      // Pisca só entradas novas (e nunca na 1ª renderização, p/ não piscar tudo).
-      const isNew = logInitialized && !seenLog.has(key);
+      // Pisca só entradas novas e só quando armado (poll ao vivo), nunca no baseline.
+      const isNew = flashArmed && !seenLog.has(key);
       seenLog.add(key);
-      const dot = ok ? '<span class="envio-dot ok"></span>' : '<span class="envio-dot err"></span>';
-      const detalhe = e.detalhe ? `<span class="envio-log-det">${escapeHtml(e.detalhe)}</span>` : "";
+      // Linha de detalhe (abaixo do cabeçalho): dados enviados no sucesso, erro na falha.
+      const detail = ok
+        ? renderPayload(e.payload)
+        : e.detalhe
+          ? `<div class="envio-log-det">${escapeHtml(e.detalhe)}</div>`
+          : "";
+      const badge = `<span class="envio-log-badge ${ok ? "ok" : "err"}">${ok ? "enviado" : "falha"}</span>`;
       return `<div class="envio-log-row${ok ? "" : " err"}${isNew ? " envio-log-new" : ""}">
-        ${dot}
         <span class="envio-log-time" data-ts="${escapeHtml(e.timestamp)}">${fmtLogTime(e.timestamp)}</span>
-        <span class="envio-log-tool">${iconFor(e.ferramenta)} ${nameFor(e.ferramenta)}</span>
-        <span class="envio-log-status">${ok ? "sucesso" : "falha"}</span>
-        ${detalhe}
+        <div class="envio-log-content">
+          <div class="envio-log-line">
+            <span class="envio-log-tool">${iconFor(e.ferramenta)} ${nameFor(e.ferramenta)}</span>
+            ${badge}
+          </div>
+          ${detail}
+        </div>
       </div>`;
     })
     .join("");
-  el("envio-log").innerHTML = rows;
-  logInitialized = true;
+  el("envio-log").innerHTML = notice + rows;
 }
 
 function render(): void {
@@ -179,6 +235,9 @@ async function pollEnvio(): Promise<void> {
 }
 
 export async function loadEnvio(): Promise<void> {
+  // Baseline: não pisca nada nesta carga (entrar na aba / focar a janela). Desarma
+  // antes do await para que um poll concorrente durante a busca também não pisque.
+  flashArmed = false;
   try {
     DATA = await invoke<EnvioState>("get_envio_state");
   } catch (e) {
@@ -186,6 +245,8 @@ export async function loadEnvio(): Promise<void> {
     return;
   }
   render();
+  // A partir daqui, novas entradas vistas pelo poll ao vivo voltam a piscar.
+  flashArmed = true;
 }
 
 async function togglePause(): Promise<void> {
