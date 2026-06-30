@@ -13,7 +13,8 @@ e as armadilhas técnicas já aprendidas. Para arquitetura e telas, veja o
 ## Regras que não podem ser quebradas (resumo do ONBOARDING)
 
 1. **Nunca commite direto no `main`.** Toda mudança vai por **branch de tópico +
-   Pull Request**. Crie a branch sempre a partir de `origin/main` atualizado.
+   Pull Request**. Crie a branch sempre a partir de `upstream/main` atualizado
+   (`git fetch upstream` antes — o fork pode estar atrás).
 2. **Atualize o `CHANGELOG.md` antes de mergear** — o app lê esse arquivo em
    runtime para as Novidades/OTA. Cada item em **uma única linha**, voltado ao
    usuário final (padrão Keep a Changelog), na seção `[Não lançado]`.

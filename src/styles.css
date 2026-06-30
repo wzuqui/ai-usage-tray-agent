@@ -67,7 +67,10 @@ h1 { font-size: 24px; font-weight: 600; display: flex; align-items: center; gap:
 
 /* ===== Painel / dashboard ===== */
 .panel { background: #232220; border: 1px solid #34322d; border-radius: 14px; padding: 18px; margin-top: 18px; }
-.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Divisor entre as abas/datas e o conteúdo (Dashboard Claude e Codex). O
+   margin-bottom colapsa com a margem do conteúdo, mantendo o gap ~16px em todas
+   as abas (cards/ranklist/gráfico). */
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid #34322d; margin-bottom: 16px; }
 .tabs, .ranges { display: flex; gap: 4px; }
 .tabs button, .ranges button { background: transparent; border: none; color: #9a968d; padding: 6px 12px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 14px; }
 .tabs button.on, .ranges button.on { background: #3a3833; color: #fff; }
@@ -349,8 +352,8 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 /* Nenhum provedor com "Enviar ao Loki" ativado: aviso âmbar, sem pílula. */
 .envio-badge.none { color: #d9b78a; background: none; border: none; padding: 0; }
 .envio-sub { color: #9a968d; font-size: 13px; margin-top: 8px; }
-/* Status do envio por provedor, abaixo da contagem do próximo envio. */
-.envio-prov-status { color: #807c74; font-size: 12.5px; margin-top: 4px; }
+/* Status do envio por provedor (abaixo do badge; a contagem foi p/ o subtítulo). */
+.envio-prov-status { color: #807c74; font-size: 12.5px; margin-top: 10px; }
 .envio-prov-state.on { color: #fff; font-weight: 600; }
 .envio-prov-state.off { color: #9a968d; }
 /* Indicador "ao vivo": ponto verde pulsante quando o envio está ativo. */
@@ -366,6 +369,11 @@ input:focus, select:focus { outline: none; border-color: #d97757; }
 .btn-primary:hover { background: #e08a6d; }
 .btn-primary:disabled { opacity: .55; cursor: default; }
 .envio-prov-head, .envio-log-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+/* Divisor abaixo do título/botão do histórico, separando-o da lista de envios.
+   align-items:center (sobrescreve o baseline herdado) centraliza o botão "Limpar";
+   o margin-top negativo sobe a linha ~3px (compensando a assimetria do padding do
+   painel 18px vs. 12px do divider) e o padding-bottom mantém o divider no lugar. */
+.envio-log-head { margin-top: -3px; padding-bottom: 15px; border-bottom: 1px solid #34322d; align-items: center; }
 .envio-h2 { font-size: 16px; font-weight: 600; margin: 0; }
 .envio-h2-hint { margin: 0; }
 .envio-prov { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #2a2926; border: 1px solid #34322d; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }

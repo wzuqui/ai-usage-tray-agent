@@ -26,6 +26,19 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 
 ## [Não lançado]
 
+### Alterado
+- Envio de dados: a **contagem regressiva** do próximo envio passou para o **subtítulo da página** (como o "Atualizado há…" do Uso atual), e o histórico de envios ganhou um divisor abaixo do título.
+- Janela de atualização: visual mais limpo — sem a seta ao lado do título e sem o sufixo "Atualização disponível" na barra de título da janela.
+- Dashboard Claude e Dashboard Codex: divisor entre as abas/seletor de período e o conteúdo.
+
+### Corrigido
+- Abas: a aba ativa não perde mais o destaque ao alternar entre telas (Dashboard Claude, Dashboard Codex e Configurações).
+
+### Removido
+- Menu do tray (clique direito): removidos os itens de **status** (status geral e uso por provedor Codex/Claude) e o botão **Enviar agora** — o menu ficou só com as ações.
+
+## [0.2.41] - 2026-06-30
+
 ### Corrigido
 - Dashboard Claude: o painel não fica mais travado até reiniciar o app caso ocorra um erro ao carregar os dados de uso.
 

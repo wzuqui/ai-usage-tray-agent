@@ -2,8 +2,8 @@
 // coleta. Mostra o estado atual (ativo/pausado), permite pausar/retomar e ver o
 // histórico dos últimos envios (sucesso/falha), atualizado quase em tempo real. O
 // envio por provedor (Enviar ao Loki) ficou nas abas de cada provedor em
-// Configurações (chama `set_envio_provider` direto); o "Enviar agora" geral é
-// acionado só pelo menu do tray/widget, não há botão nesta tela.
+// Configurações (chama `set_envio_provider` direto). Não há envio manual: o
+// worker envia no intervalo configurado, respeitando a pausa e o config.envio.
 //
 // Os dados vêm do comando IPC `get_envio_state` (barato, sem rede); as ações usam
 // `set_envio_paused` e `clear_send_log`. O estado da pausa é sincronizado com o
@@ -112,8 +112,9 @@ function nextSendText(): string {
   return `Próximo envio em ${sec}s`;
 }
 
-/// Cabeçalho simplificado: indicador "ao vivo" (ponto pulsante quando ativo, com
-/// a contagem do próximo envio) e o botão de pausar/retomar, em uma única linha.
+/// Cabeçalho simplificado: indicador "ao vivo" (ponto pulsante quando ativo) e o
+/// botão de pausar/retomar, em uma única linha. A contagem do próximo envio fica
+/// no subtítulo da página (renderSub), igual ao "Atualizado há…" do "Uso atual".
 function renderState(): void {
   if (!DATA) return;
   const paused = DATA.paused;
@@ -129,18 +130,20 @@ function renderState(): void {
     sub = 'Nenhum provedor está com "Enviar ao Loki" ativado.';
   } else {
     badge = '<span class="envio-badge active"><span class="envio-live"></span>Envio ativo</span>';
-    sub = `<span id="envio-next">${nextSendText()}</span>`;
+    sub = ""; // a contagem do próximo envio foi para o subtítulo da página (renderSub).
   }
   const provState = (label: string, on: boolean): string =>
     `${label}: <span class="envio-prov-state ${on ? "on" : "off"}">${on ? "ativado" : "desativado"}</span>`;
   const provStatus = `${provState("Claude", DATA.claude.enviar)} · ${provState("Codex", DATA.codex.enviar)}`;
+  // Só renderiza a linha de descrição quando há texto (o estado ativo não a usa mais).
+  const subHtml = sub ? `<div class="envio-sub">${sub}</div>` : "";
 
   el("envio-state").innerHTML = `
     <div class="envio-card">
       <div class="envio-card-top">
         <div>
           ${badge}
-          <div class="envio-sub">${sub}</div>
+          ${subHtml}
           <div class="envio-prov-status">${provStatus}</div>
         </div>
         <div class="envio-actions">
@@ -152,7 +155,16 @@ function renderState(): void {
   (el("envio-toggle") as HTMLButtonElement).onclick = () => void togglePause();
 }
 
+/// Subtítulo da página: contagem regressiva do próximo envio automático (mesmo
+/// papel do "Atualizado há…" do "Uso atual"). Vazio quando pausado ou sem nenhum
+/// provedor enviando — nesses casos o card já explica o estado.
+function renderSub(): void {
+  const show = !!DATA && !DATA.paused && !noneSending();
+  el("envio-sub").innerHTML = show ? `<span id="envio-next">${nextSendText()}</span>` : "";
+}
+
 /// Atualiza só a contagem do próximo envio (a cada 1s), sem reconstruir o card.
+/// O `#envio-next` agora vive no subtítulo da página, mas a busca é por id.
 function tick(): void {
   const next = document.getElementById("envio-next");
   if (next) next.textContent = nextSendText();
@@ -209,6 +221,7 @@ function renderLog(): void {
 function render(): void {
   renderBanner();
   renderState();
+  renderSub();
   renderLog();
   el("envio-foot").textContent = "";
 }
@@ -232,6 +245,7 @@ async function pollEnvio(): Promise<void> {
   DATA = state;
   renderBanner();
   renderState();
+  renderSub();
   renderLog();
 }
 

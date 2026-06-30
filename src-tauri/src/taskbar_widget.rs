@@ -84,7 +84,6 @@ static PAUSED: AtomicBool = AtomicBool::new(false);
 const CMD_OPEN_APP: usize = 1;
 const CMD_OPEN_CONFIG: usize = 2;
 const CMD_OPEN_LOGS: usize = 3;
-const CMD_SEND_NOW: usize = 4;
 const CMD_TOGGLE_PAUSE: usize = 5;
 const CMD_QUIT: usize = 6;
 const CMD_CHECK_UPDATES: usize = 7;
@@ -95,7 +94,6 @@ fn menu_command_id(cmd: usize) -> Option<&'static str> {
         CMD_OPEN_APP => Some("open_app"),
         CMD_OPEN_CONFIG => Some("open_config"),
         CMD_OPEN_LOGS => Some("open_logs"),
-        CMD_SEND_NOW => Some("send_now"),
         CMD_TOGGLE_PAUSE => Some("toggle_pause"),
         CMD_CHECK_UPDATES => Some("check_updates"),
         CMD_QUIT => Some("quit"),
@@ -942,10 +940,8 @@ pub unsafe fn show_context_menu() {
         w!("Pausar envio")
     };
     let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN_APP, w!("Abrir"));
-    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN_CONFIG, w!("Abrir config.json"));
     let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN_LOGS, w!("Abrir pasta de logs"));
-    let _ = AppendMenuW(menu, MF_STRING, CMD_SEND_NOW, w!("Enviar agora"));
     let _ = AppendMenuW(menu, MF_STRING, CMD_TOGGLE_PAUSE, pause_label);
     let _ = AppendMenuW(menu, MF_STRING, CMD_CHECK_UPDATES, w!("Buscar atualizações"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());

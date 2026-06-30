@@ -221,7 +221,7 @@ fn handle_invoke(app: &AppHandle, paths: &RuntimePaths, mut request: Request, cm
         "force_collect" => {
             // "Atualizar agora": forca uma coleta nova (respeitando as regras de
             // envio, igual ao comando nativo) e devolve o uso ja' atualizado.
-            let _ = crate::run_collection_cycle(app, paths, &shared, false);
+            let _ = crate::run_collection_cycle(app, paths, &shared);
             usage_value(paths, &shared)
         }
         "get_stats" => crate::usage_dashboard::collect_stats(),
