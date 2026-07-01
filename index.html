@@ -311,12 +311,18 @@
                           <rect x="55" y="57" width="19" height="8" rx="4" fill="#fff"/>
                         </svg>
                       </span>
-                      <span class="prov-toggle-name">Codex</span>
+                      <span class="prov-toggle-text">
+                        <span class="prov-toggle-name">Codex</span>
+                        <span class="prov-toggle-note" id="barra-codex-note" hidden></span>
+                      </span>
                       <span class="switch"><input type="checkbox" id="set-codexTaskbar"><span class="switch-track"></span></span>
                     </label>
                     <label class="prov-toggle">
                       <span class="provider-logo"><span class="spark">✳</span></span>
-                      <span class="prov-toggle-name">Claude</span>
+                      <span class="prov-toggle-text">
+                        <span class="prov-toggle-name">Claude</span>
+                        <span class="prov-toggle-note" id="barra-claude-note" hidden></span>
+                      </span>
                       <span class="switch"><input type="checkbox" id="set-claudeTaskbar"><span class="switch-track"></span></span>
                     </label>
                   </div>
@@ -379,7 +385,10 @@
                 <div class="row prov-toggles-row">
                   <label class="prov-toggle">
                     <span class="provider-logo"><span class="spark">✳</span></span>
-                    <span class="prov-toggle-name">Claude</span>
+                    <span class="prov-toggle-text">
+                      <span class="prov-toggle-name">Claude</span>
+                      <span class="prov-toggle-note" id="wdg-claude-note" hidden></span>
+                    </span>
                     <span class="switch"><input type="checkbox" id="set-wdgClaude"><span class="switch-track"></span></span>
                   </label>
                   <label class="prov-toggle">
@@ -397,7 +406,10 @@
                         <rect x="55" y="57" width="19" height="8" rx="4" fill="#fff"/>
                       </svg>
                     </span>
-                    <span class="prov-toggle-name">Codex</span>
+                    <span class="prov-toggle-text">
+                      <span class="prov-toggle-name">Codex</span>
+                      <span class="prov-toggle-note" id="wdg-codex-note" hidden></span>
+                    </span>
                     <span class="switch"><input type="checkbox" id="set-wdgCodex"><span class="switch-track"></span></span>
                   </label>
                 </div>
@@ -516,30 +528,44 @@
 
               <!-- Servidor -->
               <div class="stab" data-spanel="servidor">
-                <div class="field">
-                  <label class="check"><input type="checkbox" id="set-srvHab"><span>Habilitar servidor dos dashboards</span></label>
-                </div>
-                <div class="row">
-                  <div class="field">
-                    <label for="set-srvHost">Endereço (bind)</label>
-                    <select id="set-srvHost">
-                      <option value="127.0.0.1">Apenas local (127.0.0.1)</option>
-                      <option value="0.0.0.0">Rede / proxy (0.0.0.0)</option>
-                    </select>
-                    <div class="desc"><code>127.0.0.1</code> só aceita conexões da própria máquina; <code>0.0.0.0</code> aceita da rede (use atrás de um proxy com TLS).</div>
+                <div class="provider-card">
+                  <div class="provider-head">
+                    <span class="provider-logo">
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#c9c5bc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/><path d="M7.5 12.5v-2.5M12 12.5v-4M16.5 12.5v-1.5" stroke="#d97757"/></svg>
+                    </span>
+                    <div class="provider-title">
+                      <div class="provider-name">Servidor dos dashboards</div>
+                      <div class="provider-sub">Acessa os dashboards pelo navegador, protegido por PIN.</div>
+                    </div>
+                    <label class="switch" title="Habilitar servidor dos dashboards">
+                      <input type="checkbox" id="set-srvHab">
+                      <span class="switch-track"></span>
+                    </label>
                   </div>
-                  <div class="field">
-                    <label for="set-srvPorta">Porta</label>
-                    <input type="number" id="set-srvPorta" min="1" max="65535" step="1" placeholder="8770">
+                  <div class="provider-body" id="set-srvBody">
+                    <div class="row">
+                      <div class="field">
+                        <label for="set-srvHost">Endereço (bind)</label>
+                        <select id="set-srvHost">
+                          <option value="127.0.0.1">Apenas local (127.0.0.1)</option>
+                          <option value="0.0.0.0">Rede / proxy (0.0.0.0)</option>
+                        </select>
+                        <div class="desc"><code>127.0.0.1</code> só aceita conexões da própria máquina; <code>0.0.0.0</code> aceita da rede (use atrás de um proxy com TLS).</div>
+                      </div>
+                      <div class="field">
+                        <label for="set-srvPorta">Porta</label>
+                        <input type="number" id="set-srvPorta" min="1" max="65535" step="1" placeholder="8770">
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label for="set-srvPin">PIN de acesso <span class="req">(obrigatório)</span></label>
+                      <div class="inline">
+                        <input type="password" id="set-srvPin" placeholder="defina um PIN" autocomplete="new-password">
+                        <button type="button" class="btn btn-show" id="set-srvPinToggle">Mostrar</button>
+                      </div>
+                      <div id="set-srvPinWarn" class="field-warn" hidden>Defina um PIN para o servidor poder iniciar.</div>
+                    </div>
                   </div>
-                </div>
-                <div class="field">
-                  <label for="set-srvPin">PIN de acesso <span class="req">(obrigatório)</span></label>
-                  <div class="inline">
-                    <input type="password" id="set-srvPin" placeholder="defina um PIN" autocomplete="new-password">
-                    <button type="button" class="btn btn-show" id="set-srvPinToggle">Mostrar</button>
-                  </div>
-                  <div id="set-srvPinWarn" class="field-warn" hidden>Defina um PIN para o servidor poder iniciar.</div>
                 </div>
               </div>
 

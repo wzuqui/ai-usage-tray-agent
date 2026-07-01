@@ -318,6 +318,7 @@ async function autoSave(): Promise<void> {
 /// PIN — deixa claro que, sem PIN, ele não inicia.
 function syncServerPinHint(): void {
   const habilitado = $<HTMLInputElement>("set-srvHab").checked;
+  setBodyEnabled("set-srvBody", habilitado);
   const semPin = $<HTMLInputElement>("set-srvPin").value.trim() === "";
   ($("set-srvPinWarn") as HTMLElement).hidden = !(habilitado && semPin);
 }
@@ -348,26 +349,36 @@ function syncProviderHints(): void {
     $<HTMLInputElement>("set-claudeCookie").value.trim() === "";
   ($("set-claudeWarn") as HTMLElement).hidden = !(claudeOn && claudeFalta);
 
-  syncEnvioNotes();
+  syncProviderNotes();
 }
 
-/// Nota por provedor na aba Envio: se o provedor está desativado ou sem
-/// credenciais, avisa que nada será enviado — mas o toggle segue operável.
-function setEnvioNote(id: string, habilitado: boolean, configurado: boolean): void {
-  const note = $(id) as HTMLElement;
-  let msg = "";
-  if (!habilitado) msg = "Provedor desativado — não há dados para enviar.";
-  else if (!configurado) msg = "Sem credenciais — não há dados para enviar.";
-  note.textContent = msg;
-  note.hidden = msg === "";
+/// Aviso por provedor (abas Envio, Barra de tarefas e Widget): se o provedor está
+/// desativado ou sem credenciais, avisa — mas o toggle segue operável. `suffix`
+/// completa o texto (Envio explica "não há dados para enviar"; barra/widget não).
+function providerNote(habilitado: boolean, configurado: boolean, suffix: string): string {
+  if (!habilitado) return `Provedor desativado${suffix}`;
+  if (!configurado) return `Sem credenciais${suffix}`;
+  return "";
 }
-function syncEnvioNotes(): void {
+function setNotes(ids: string[], msg: string): void {
+  ids.forEach((id) => {
+    const note = document.getElementById(id);
+    if (!note) return;
+    note.textContent = msg;
+    (note as HTMLElement).hidden = msg === "";
+  });
+}
+function syncProviderNotes(): void {
+  const codexOn = $<HTMLInputElement>("set-codexHab").checked;
   const codexCfg = $<HTMLInputElement>("set-codexAuth").value.trim() !== "";
-  setEnvioNote("envio-codex-note", $<HTMLInputElement>("set-codexHab").checked, codexCfg);
+  const claudeOn = $<HTMLInputElement>("set-claudeHab").checked;
   const claudeCfg =
     $<HTMLInputElement>("set-claudeOrg").value.trim() !== "" &&
     $<HTMLInputElement>("set-claudeCookie").value.trim() !== "";
-  setEnvioNote("envio-claude-note", $<HTMLInputElement>("set-claudeHab").checked, claudeCfg);
+  setNotes(["envio-codex-note"], providerNote(codexOn, codexCfg, " — não há dados para enviar."));
+  setNotes(["envio-claude-note"], providerNote(claudeOn, claudeCfg, " — não há dados para enviar."));
+  setNotes(["barra-codex-note", "wdg-codex-note"], providerNote(codexOn, codexCfg, ""));
+  setNotes(["barra-claude-note", "wdg-claude-note"], providerNote(claudeOn, claudeCfg, ""));
 }
 
 function activateTab(tab: string): void {

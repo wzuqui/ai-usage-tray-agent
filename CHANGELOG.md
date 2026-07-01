@@ -27,6 +27,14 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 ## [Não lançado]
 
 ### Adicionado
+- Configurações → Barra de tarefas e Widget: aviso, em cada provedor, quando ele está desativado ou sem credenciais (o interruptor continua operável).
+
+### Alterado
+- Configurações → Servidor: o liga/desliga ganhou destaque — virou um card com interruptor no cabeçalho, e os campos (endereço, porta, PIN) ficam esmaecidos quando o servidor está desligado.
+
+## [0.2.43] - 2026-07-01
+
+### Adicionado
 - Configurações → Barra de tarefas e Widget: miniatura ilustrativa de como o widget aparece e onde fica na tela.
 - Configurações → Widget: seletor do modo de exibição (Completo, Mínimo e Anel duplo) com uma prévia de cada modo — clicar na miniatura escolhe o modo.
 
