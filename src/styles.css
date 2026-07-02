@@ -229,12 +229,18 @@ select {
 .provider-body > .field { margin-bottom: 0; }
 .provider-body.is-off { opacity: .45; }
 .provider-body input:disabled, .provider-body button:disabled { cursor: not-allowed; }
-/* Status do login por navegador de um provedor (verde conectado; âmbar reconectar). */
-.auth-status { font-size: 13px; color: #b8b3aa; margin-bottom: 14px; }
-.auth-status.ok { color: #7fc99a; }
-.auth-status.warn { color: #e0a890; }
-/* Aba Claude: só o cabeçalho (logo/nome/switch) fica no card; o corpo usa a largura
-   cheia da aba, como as demais abas (mesmo padrão da aba Codex). */
+/* Status do login pelo navegador de um provedor (verde conectado; âmbar reconectar).
+   Codex usa `.codex-auth-status`; Claude usa `.auth-status` (mesmos valores). */
+.auth-status, .codex-auth-status { font-size: 13px; color: #b8b3aa; margin-bottom: 14px; }
+.auth-status.ok, .codex-auth-status.ok { color: #7fc99a; }
+.auth-status.warn, .codex-auth-status.warn { color: #e0a890; }
+/* Os blocos de modo (arquivo/navegador) do Codex agrupam um .field; zera a margem
+   inferior dele para não somar com o gap do provider-body. */
+#set-codexFileAuth > .field,
+#set-codexBrowserAuth > .field { margin-bottom: 0; }
+/* Nas abas Codex e Claude, só o cabeçalho fica no .provider-card; o corpo usa a
+   largura cheia da aba, como as demais abas. */
+.stab-codex > .provider-body,
 .stab-claude > .provider-body { padding: 0; }
 /* Texto do toggle de provedor com nome + nota opcional (ex.: aba Envio). */
 .prov-toggle-text { margin-right: auto; display: flex; flex-direction: column; gap: 2px; }

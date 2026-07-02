@@ -213,7 +213,7 @@
               </div>
 
               <!-- Codex -->
-              <div class="stab" data-spanel="codex">
+              <div class="stab stab-codex" data-spanel="codex">
                 <div class="provider-card">
                   <div class="provider-head">
                     <span class="provider-logo">
@@ -239,11 +239,32 @@
                       <span class="switch-track"></span>
                     </label>
                   </div>
-                  <div class="provider-body" id="set-codexBody">
-                    <div id="set-codexWarn" class="field-warn" hidden>Preencha o caminho do <code>auth.json</code> abaixo para iniciar a coleta.</div>
+                </div>
+                <div class="provider-body" id="set-codexBody">
+                  <div class="field">
+                    <label for="set-codexAuthMode">Autenticação</label>
+                    <select id="set-codexAuthMode">
+                      <option value="arquivo">Arquivo auth.json</option>
+                      <option value="navegador">Login pelo navegador</option>
+                    </select>
+                  </div>
+                  <div id="set-codexFileAuth">
                     <div class="field">
                       <label for="set-codexAuth">Caminho do auth.json <span class="req">(obrigatório)</span></label>
-                      <input type="text" id="set-codexAuth" placeholder="C:\Users\usuario\.codex\auth.json">
+                      <div class="inline">
+                        <input type="text" id="set-codexAuth" placeholder="C:\Users\usuario\.codex\auth.json">
+                        <button type="button" class="btn" id="set-codexAuthPick">Escolher…</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="set-codexBrowserAuth" hidden>
+                    <div class="field">
+                      <div class="codex-auth-status" id="set-codexAuthStatus">Conecte sua conta para iniciar a coleta.</div>
+                      <div class="inline">
+                        <button type="button" class="btn btn-primary" id="set-codexLogin">Conectar com o navegador</button>
+                        <button type="button" class="btn" id="set-codexLoginCancel" hidden>Cancelar</button>
+                        <button type="button" class="btn" id="set-codexLogout" hidden>Desconectar</button>
+                      </div>
                     </div>
                   </div>
                 </div>

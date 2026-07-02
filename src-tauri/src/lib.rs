@@ -13,6 +13,7 @@ use std::{
 };
 
 mod claude_auth;
+mod codex_auth;
 mod codex_dashboard;
 mod http_server;
 mod usage_dashboard;
@@ -263,6 +264,10 @@ struct CodexConfig {
     /// widget da barra so existe no Windows.
     mostra_na_taskbar_windows: bool,
     auth_json_path: String,
+    /// Modo de autenticacao do Codex: "arquivo" (padrao; usa `auth_json_path`) ou
+    /// "navegador" (login OAuth pelo navegador; tokens no arquivo gerenciado
+    /// `codex-auth.json`, ver `codex_auth`). Valores desconhecidos = "arquivo".
+    auth_mode: String,
 }
 
 impl Default for CodexConfig {
@@ -271,6 +276,7 @@ impl Default for CodexConfig {
             habilitado: true,
             mostra_na_taskbar_windows: true,
             auth_json_path: String::new(),
+            auth_mode: "arquivo".to_string(),
         }
     }
 }
@@ -528,6 +534,11 @@ pub fn run() {
             check_update_status,
             open_update_window,
             open_external,
+            codex_login,
+            codex_auth_status,
+            codex_logout,
+            codex_login_cancel,
+            pick_codex_auth_file,
             claude_login,
             claude_auth_status,
             claude_logout,
@@ -803,13 +814,12 @@ pub(crate) fn collect_codex_stats(
     end: Option<String>,
 ) -> Value {
     let config = read_config(paths);
-    codex_dashboard::collect(
-        &http_client(),
-        &config.providers.codex.auth_json_path,
-        days,
-        start,
-        end,
-    )
+    let client = http_client();
+    let auth_path = match resolve_codex_auth_file(&client, &config, paths) {
+        Ok(path) => path,
+        Err(error) => return json!({ "error": error }),
+    };
+    codex_dashboard::collect(&client, &auth_path.to_string_lossy(), days, start, end)
 }
 
 /// Estado exposto a' tela "Envio de dados": pausa geral, envio por provider
@@ -1010,6 +1020,27 @@ async fn pick_widget_background(app: AppHandle) -> Option<String> {
         app.dialog()
             .file()
             .add_filter("Imagens e GIFs", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+            .blocking_pick_file()
+            .and_then(|file| file.into_path().ok())
+            .map(|path| path.to_string_lossy().to_string())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Abre o seletor de arquivo nativo para escolher o `auth.json` do Codex (modo de
+/// autenticacao por arquivo). Devolve o caminho, ou `None` se o usuario cancelar.
+/// `async` pelo mesmo motivo de `pick_widget_background` (evitar loop modal na main
+/// thread e travar o event loop/tray).
+#[tauri::command]
+async fn pick_codex_auth_file(app: AppHandle) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("auth.json", &["json"])
+            .add_filter("Todos os arquivos", &["*"])
             .blocking_pick_file()
             .and_then(|file| file.into_path().ok())
             .map(|path| path.to_string_lossy().to_string())
@@ -1491,7 +1522,7 @@ fn run_collection_cycle<R: Runtime>(
     let (codex_result, claude_result): (CollectOutcome, CollectOutcome) =
         thread::scope(|scope| {
             let codex_handle =
-                codex_enabled.then(|| scope.spawn(|| collect_codex_metric(&client, &config)));
+                codex_enabled.then(|| scope.spawn(|| collect_codex_metric(&client, &config, paths)));
             let claude_result =
                 claude_enabled.then(|| collect_claude_metric(&client, &config, paths));
             let codex_result = codex_handle.map(|handle| {
@@ -1597,13 +1628,34 @@ fn handle_collected<R: Runtime>(
     }
 }
 
-fn collect_codex_metric(client: &Client, config: &AppConfig) -> Result<UsageMetric, String> {
-    let auth_path = config.providers.codex.auth_json_path.trim();
-    if auth_path.is_empty() {
-        return Err("Caminho do auth.json do Codex nao configurado.".to_string());
+/// Resolve o arquivo de credenciais do Codex conforme o modo de autenticacao:
+/// "navegador" usa o arquivo gerenciado (`codex_auth`), renovando o token se
+/// preciso; qualquer outro valor usa o caminho do `auth.json` informado pelo
+/// usuario. Devolve o caminho pronto para os leitores (coleta e dashboard).
+fn resolve_codex_auth_file(
+    client: &Client,
+    config: &AppConfig,
+    paths: &RuntimePaths,
+) -> Result<PathBuf, String> {
+    if config.providers.codex.auth_mode == "navegador" {
+        codex_auth::ensure_fresh(client, &paths.config_dir)
+    } else {
+        let path = config.providers.codex.auth_json_path.trim();
+        if path.is_empty() {
+            return Err("Caminho do auth.json do Codex nao configurado.".to_string());
+        }
+        Ok(PathBuf::from(path))
     }
+}
 
-    let auth_raw = fs::read_to_string(auth_path)
+fn collect_codex_metric(
+    client: &Client,
+    config: &AppConfig,
+    paths: &RuntimePaths,
+) -> Result<UsageMetric, String> {
+    let auth_path = resolve_codex_auth_file(client, config, paths)?;
+
+    let auth_raw = fs::read_to_string(&auth_path)
         .map_err(|error| format!("Falha ao ler auth.json do Codex: {error}"))?;
     let auth: OpenCodeAuth =
         serde_json::from_str(&auth_raw).map_err(|error| format!("auth.json invalido: {error}"))?;
@@ -2759,6 +2811,41 @@ fn claude_logout(paths: State<'_, RuntimePaths>) -> Result<(), String> {
 #[tauri::command]
 fn claude_login_cancel() {
     claude_auth::cancel();
+}
+
+/// Login do Codex pelo navegador (OAuth + PKCE), alternativa ao caminho do
+/// `auth.json`. E' bloqueante (sobe o servidor de callback e aguarda ate' ~5 min o
+/// usuario concluir no navegador), entao roda em `spawn_blocking` para nao travar o
+/// event loop. Grava os tokens no arquivo gerenciado e devolve o status do login
+/// (`{connected,email,expiresAt,accountId}`).
+#[tauri::command]
+async fn codex_login(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = app.state::<RuntimePaths>().inner().clone();
+        codex_auth::login(&http_client(), &paths.config_dir)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Status do login do Codex pelo navegador (sem rede), para a aba Codex das
+/// Configuracoes exibir "Conectado como ...".
+#[tauri::command]
+fn codex_auth_status(paths: State<'_, RuntimePaths>) -> Value {
+    codex_auth::status(&paths.config_dir)
+}
+
+/// Remove as credenciais do login pelo navegador ("Desconectar").
+#[tauri::command]
+fn codex_logout(paths: State<'_, RuntimePaths>) -> Result<(), String> {
+    codex_auth::logout(&paths.config_dir)
+}
+
+/// Cancela um login pelo navegador em andamento (botao "Cancelar"): libera a porta
+/// 1455 e faz o `codex_login` pendente retornar sem esperar o timeout.
+#[tauri::command]
+fn codex_login_cancel() {
+    codex_auth::cancel();
 }
 
 fn open_path(path: &Path) -> Result<(), String> {
