@@ -7,6 +7,7 @@ interface CodexConfig {
   habilitado: boolean;
   mostraNaTaskbarWindows: boolean;
   authJsonPath: string;
+  authMode: string;
 }
 interface ClaudeConfig {
   habilitado: boolean;
@@ -76,6 +77,8 @@ function fillForm(data: SettingsData): void {
 
   $<HTMLInputElement>("set-codexHab").checked = codex.habilitado !== false;
   $<HTMLInputElement>("set-codexAuth").value = codex.authJsonPath ?? "";
+  $<HTMLSelectElement>("set-codexAuthMode").value = codex.authMode === "navegador" ? "navegador" : "arquivo";
+  syncCodexAuthMode();
   $<HTMLInputElement>("set-codexTaskbar").checked = codex.mostraNaTaskbarWindows !== false;
 
   $<HTMLInputElement>("set-claudeHab").checked = claude.habilitado !== false;
@@ -133,6 +136,7 @@ function collect(): SaveSettings {
         habilitado: $<HTMLInputElement>("set-codexHab").checked,
         mostraNaTaskbarWindows: $<HTMLInputElement>("set-codexTaskbar").checked,
         authJsonPath: $<HTMLInputElement>("set-codexAuth").value.trim(),
+        authMode: $<HTMLSelectElement>("set-codexAuthMode").value === "navegador" ? "navegador" : "arquivo",
       },
       claude: {
         habilitado: $<HTMLInputElement>("set-claudeHab").checked,
@@ -262,12 +266,86 @@ async function setEnvioProvider(ferramenta: "codex" | "claude", enviar: boolean)
   }
 }
 
+// Autenticação do Codex: o modo ("arquivo" | "navegador") é parte do config.json
+// (auto-save), mas o login/logout pelo navegador é feito à parte, via os comandos
+// codex_login/codex_logout, e o status vem de codex_auth_status.
+interface CodexAuthStatus {
+  connected: boolean;
+  email: string | null;
+  expiresAt: number | null;
+}
+// Reflete o último status conhecido; usado pelos avisos de "sem credenciais".
+let codexConnected = false;
+
+/// Mostra a seção do modo escolhido (caminho do auth.json ou login pelo navegador).
+function codexAuthMode(): "arquivo" | "navegador" {
+  return $<HTMLSelectElement>("set-codexAuthMode").value === "navegador" ? "navegador" : "arquivo";
+}
+function syncCodexAuthMode(): void {
+  const mode = codexAuthMode();
+  ($("set-codexFileAuth") as HTMLElement).hidden = mode !== "arquivo";
+  ($("set-codexBrowserAuth") as HTMLElement).hidden = mode !== "navegador";
+}
+
+/// Reflete o status do login pelo navegador na UI (texto, botões) e nos avisos.
+function applyCodexAuthStatus(st: CodexAuthStatus): void {
+  codexConnected = !!st.connected;
+  const statusEl = $("set-codexAuthStatus");
+  if (st.connected) {
+    statusEl.textContent = st.email ? `Conectado como ${st.email}.` : "Conectado.";
+    statusEl.classList.add("ok");
+  } else {
+    statusEl.textContent = "Não conectado.";
+    statusEl.classList.remove("ok");
+  }
+  $<HTMLButtonElement>("set-codexLogin").textContent = st.connected ? "Reconectar" : "Conectar com o navegador";
+  ($("set-codexLogout") as HTMLElement).hidden = !st.connected;
+  syncProviderHints();
+}
+
+/// Lê o status do login pelo navegador (sem rede). Chamado ao abrir a tela.
+async function loadCodexAuthStatus(): Promise<void> {
+  try {
+    applyCodexAuthStatus(await invoke<CodexAuthStatus>("codex_auth_status"));
+  } catch {
+    // transitório; mantém o estado atual
+  }
+}
+
+/// Dispara o login pelo navegador (bloqueante no backend até o usuário concluir).
+async function codexLogin(): Promise<void> {
+  const btn = $<HTMLButtonElement>("set-codexLogin");
+  btn.disabled = true;
+  $("set-codexAuthStatus").textContent = "Aguardando o login no navegador…";
+  try {
+    applyCodexAuthStatus(await invoke<CodexAuthStatus>("codex_login"));
+    setMsg("Codex conectado.", "ok");
+  } catch (e) {
+    setMsg("Falha no login do Codex: " + (e instanceof Error ? e.message : String(e)), "err");
+    void loadCodexAuthStatus();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/// Remove as credenciais do login pelo navegador.
+async function codexLogout(): Promise<void> {
+  try {
+    await invoke("codex_logout");
+    applyCodexAuthStatus({ connected: false, email: null, expiresAt: null });
+    setMsg("Codex desconectado.", "ok");
+  } catch (e) {
+    setMsg("Falha ao desconectar: " + (e instanceof Error ? e.message : String(e)), "err");
+  }
+}
+
 export async function loadSettings(): Promise<void> {
   setMsg("");
   try {
     const data = await invoke<SettingsData>("get_settings");
     fillForm(data);
     void loadEnvioToggles();
+    void loadCodexAuthStatus();
     $("settings-loading").hidden = true;
     $("settings-form").hidden = false;
   } catch (e) {
@@ -339,8 +417,14 @@ function setBodyEnabled(bodyId: string, on: boolean): void {
 function syncProviderHints(): void {
   const codexOn = $<HTMLInputElement>("set-codexHab").checked;
   setBodyEnabled("set-codexBody", codexOn);
-  const codexFalta = $<HTMLInputElement>("set-codexAuth").value.trim() === "";
-  ($("set-codexWarn") as HTMLElement).hidden = !(codexOn && codexFalta);
+  const codexFalta = codexAuthMode() === "navegador"
+    ? !codexConnected
+    : $<HTMLInputElement>("set-codexAuth").value.trim() === "";
+  const codexWarn = $("set-codexWarn") as HTMLElement;
+  codexWarn.innerHTML = codexAuthMode() === "navegador"
+    ? "Conecte sua conta pelo navegador para iniciar a coleta."
+    : "Preencha o caminho do <code>auth.json</code> abaixo para iniciar a coleta.";
+  codexWarn.hidden = !(codexOn && codexFalta);
 
   const claudeOn = $<HTMLInputElement>("set-claudeHab").checked;
   setBodyEnabled("set-claudeBody", claudeOn);
@@ -370,7 +454,9 @@ function setNotes(ids: string[], msg: string): void {
 }
 function syncProviderNotes(): void {
   const codexOn = $<HTMLInputElement>("set-codexHab").checked;
-  const codexCfg = $<HTMLInputElement>("set-codexAuth").value.trim() !== "";
+  const codexCfg = codexAuthMode() === "navegador"
+    ? codexConnected
+    : $<HTMLInputElement>("set-codexAuth").value.trim() !== "";
   const claudeOn = $<HTMLInputElement>("set-claudeHab").checked;
   const claudeCfg =
     $<HTMLInputElement>("set-claudeOrg").value.trim() !== "" &&
@@ -415,6 +501,12 @@ export function initSettings(): void {
   $("set-srvPin").addEventListener("input", syncServerPinHint);
   $("set-codexHab").addEventListener("change", syncProviderHints);
   $("set-codexAuth").addEventListener("input", syncProviderHints);
+  $("set-codexAuthMode").addEventListener("change", () => {
+    syncCodexAuthMode();
+    syncProviderHints();
+  });
+  $("set-codexLogin").addEventListener("click", () => void codexLogin());
+  $("set-codexLogout").addEventListener("click", () => void codexLogout());
   $("set-claudeHab").addEventListener("change", syncProviderHints);
   $("set-claudeOrg").addEventListener("input", syncProviderHints);
   $("set-claudeCookie").addEventListener("input", syncProviderHints);

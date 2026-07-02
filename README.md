@@ -24,7 +24,7 @@ O projeto foi feito com:
 
 Funcional, com:
 
-- Coleta real do Codex usando `auth.json`
+- Coleta real do Codex usando `auth.json` ou login pelo navegador (OAuth)
 - Coleta real do Claude usando `organizationId` e `sessionKey`
 - Envio para Loki sem `tenant` e sem `basic auth`
 - Janela do app com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex**,
@@ -69,6 +69,7 @@ Exemplo:
     "codex": {
       "habilitado": true,
       "mostraNaTaskbarWindows": true,
+      "authMode": "arquivo",
       "authJsonPath": "C:\\Users\\usuario\\.codex\\auth.json"
     },
     "claude": {
@@ -245,7 +246,11 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
 - **Envio**: `usuario` (Nome de exibição), `loki.url` e o **Enviar ao Loki** por
   provedor (`envio.codex`, `envio.claude`, como interruptores) — avisa quando o
   provedor está desativado ou sem credenciais, mas o interruptor segue operável.
-- **Codex**: `habilitado` (interruptor de destaque com o logo) e `authJsonPath`.
+- **Codex**: `habilitado` (interruptor de destaque com o logo) e a **autenticação**
+  (`authMode`), que pode ser **Arquivo auth.json** (`authJsonPath`, caminho de um
+  `auth.json` existente — ex.: do Codex CLI) ou **Login pelo navegador** (OAuth:
+  um botão abre o navegador para você entrar na conta ChatGPT/OpenAI; os tokens
+  ficam salvos no próprio app, em `codex-auth.json`, e são renovados sozinhos).
 - **Claude**: `habilitado` (interruptor de destaque com o logo), `organizationId`
   e `cookie` (com mostrar/ocultar) — os campos ficam esmaecidos quando o provedor
   está desativado.
@@ -540,8 +545,11 @@ Claude:
 
 Codex:
 
-- A coleta depende de um `auth.json` válido
-- O formato atual suportado inclui `tokens.access_token`
+- A autenticação pode ser por **arquivo** (um `auth.json` válido, com
+  `tokens.access_token`) ou por **login pelo navegador** (OAuth), que salva e
+  renova os tokens no próprio app (`codex-auth.json`)
+- O login pelo navegador abre a porta local `1455` para receber o retorno do OAuth
+  (mesma porta usada pelo Codex CLI); deixe-a livre durante a conexão
 
 ## Estrutura do projeto
 
@@ -580,6 +588,7 @@ src-tauri/
     main.rs
     usage_dashboard.rs # coleta as estatisticas do dashboard (Claude, arquivos locais)
     codex_dashboard.rs # historico diario de uso do Codex (API wham, get_codex_stats)
+    codex_auth.rs      # login do Codex pelo navegador (OAuth+PKCE) e refresh dos tokens (codex-auth.json)
     http_server.rs     # servidor HTTP opcional: serve os dashboards no navegador com PIN (somente leitura)
     taskbar_widget.rs  # widget da barra de tarefas (somente Windows)
   tauri.conf.json
