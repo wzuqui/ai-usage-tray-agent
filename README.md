@@ -256,8 +256,10 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
   (`authMode`), que pode ser **Campos manuais** (`organizationId` + `cookie`, com
   mostrar/ocultar) ou **Login pelo navegador** (um botão abre a claude.ai para você
   entrar; a sessão e o Organization ID são capturados e salvos no app — em
-  `claude-auth.json` — com aviso para reconectar quando a sessão expira). Os campos
-  ficam esmaecidos quando o provedor está desativado.
+  `claude-auth.json` — com aviso para reconectar quando a sessão expira). Se a conta
+  tiver mais de uma organização, o app pede para escolher qual usar (mostrando o uso
+  atual de cada uma), pois a coleta é por organização. Os campos ficam esmaecidos
+  quando o provedor está desativado.
 - **Barra de tarefas** (Windows): exibir cada provedor na barra
   (`providers.<ia>.mostraNaTaskbarWindows`), `lado`, `deslocamento`,
   `tamanhoFonte`, `corFonte` (com seletor de cor), `formatoReset` (tempo
@@ -546,7 +548,9 @@ Claude:
 
 - A autenticação pode ser **manual** (`organizationId` + `sessionKey` válidos) ou por
   **login pelo navegador**, que captura a sessão e o Organization ID e os salva no
-  app (`claude-auth.json`)
+  app (`claude-auth.json`). Como o uso é medido **por organização**, se a conta tiver
+  mais de uma o app pede para escolher qual usar (mostrando o uso de cada uma) em vez
+  de adivinhar — evita coletar da organização errada e reportar 0%
 - A sessão web **expira** e **não há renovação automática** (não existe refresh
   token): quando expira, a coleta recebe 401/403 e o app pede para **reconectar**
   (no modo manual, atualize o `cookie`/`config.json`)

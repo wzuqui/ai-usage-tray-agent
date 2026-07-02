@@ -421,10 +421,25 @@ interface ClaudeAuthStatus {
   email: string | null;
   organizationId: string | null;
 }
+// Uma org candidata quando a conta tem mais de uma com "chat" (o backend pede escolha).
+interface ClaudeOrgCandidate {
+  uuid: string;
+  name: string | null;
+  utilization: number | null;
+}
+// Retorno do claude_login: ou já conectou (status), ou precisa escolher a org.
+interface ClaudeLoginResult {
+  needsSelection: boolean;
+  status?: ClaudeAuthStatus;
+  email?: string | null;
+  organizations?: ClaudeOrgCandidate[];
+}
 // Último status conhecido do login pelo navegador; usado nos avisos "sem credenciais".
 let claudeConnected = false;
 // Enquanto true, o auto-refresh não relê o status (não atropela o "Aguardando…").
 let claudeLoginInProgress = false;
+// Enquanto o seletor de org está aberto, o auto-refresh não relê o status.
+let claudeOrgPickerOpen = false;
 
 function claudeAuthMode(): "manual" | "navegador" {
   return $<HTMLSelectElement>("set-claudeAuthMode").value === "navegador" ? "navegador" : "manual";
@@ -438,6 +453,7 @@ function syncClaudeAuthMode(): void {
 
 /// Reflete o status do login pelo navegador na UI (texto, botões) e nos avisos.
 function applyClaudeAuthStatus(st: ClaudeAuthStatus): void {
+  hideClaudeOrgPicker();
   // Sessão que precisa reconectar conta como "sem credenciais" nos avisos.
   claudeConnected = !!st.connected && !st.needsReconnect;
   const statusEl = $("set-claudeAuthStatus");
@@ -480,16 +496,68 @@ async function claudeLogin(): Promise<void> {
   btn.hidden = true;
   cancelBtn.hidden = false;
   claudeLoginInProgress = true;
+  hideClaudeOrgPicker();
   $("set-claudeAuthStatus").textContent = "Aguardando o login no navegador…";
   try {
-    applyClaudeAuthStatus(await invoke<ClaudeAuthStatus>("claude_login"));
+    const res = await invoke<ClaudeLoginResult>("claude_login");
+    cancelBtn.hidden = true;
+    if (res.needsSelection && res.organizations && res.organizations.length) {
+      // Mantém "in progress" para o auto-refresh não sobrescrever enquanto escolhe.
+      showClaudeOrgPicker(res.organizations);
+      return;
+    }
+    if (res.status) applyClaudeAuthStatus(res.status);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (!/cancel/i.test(msg)) setMsg("Falha no login do Claude: " + msg, "err");
     await loadClaudeAuthStatus();
   } finally {
-    claudeLoginInProgress = false;
+    if (!claudeOrgPickerOpen) claudeLoginInProgress = false;
     cancelBtn.hidden = true;
+  }
+}
+
+/// Mostra o seletor de org (conta com mais de uma org "chat"), com o uso atual de cada
+/// uma para ajudar a identificar a certa. O login só conclui ao confirmar.
+function showClaudeOrgPicker(orgs: ClaudeOrgCandidate[]): void {
+  const picker = $("set-claudeOrgPicker") as HTMLElement;
+  const select = $<HTMLSelectElement>("set-claudeOrgSelect");
+  select.innerHTML = "";
+  for (const org of orgs) {
+    const opt = document.createElement("option");
+    opt.value = org.uuid;
+    const uso = org.utilization != null ? `${Math.round(org.utilization)}% (5h)` : "uso indisponível";
+    opt.textContent = `${org.name ?? org.uuid} — ${uso}`;
+    select.appendChild(opt);
+  }
+  ($("set-claudeLogin") as HTMLElement).hidden = true;
+  picker.hidden = false;
+  claudeOrgPickerOpen = true;
+  claudeLoginInProgress = true;
+  const statusEl = $("set-claudeAuthStatus");
+  statusEl.classList.remove("ok", "warn");
+  statusEl.textContent = "Selecione a organização para concluir o login.";
+}
+
+function hideClaudeOrgPicker(): void {
+  ($("set-claudeOrgPicker") as HTMLElement).hidden = true;
+  claudeOrgPickerOpen = false;
+}
+
+/// Grava a org escolhida e conclui o login pelo navegador.
+async function claudeSelectOrg(): Promise<void> {
+  const organizationId = $<HTMLSelectElement>("set-claudeOrgSelect").value;
+  if (!organizationId) return;
+  try {
+    const status = await invoke<ClaudeAuthStatus>("claude_select_org", { organizationId });
+    hideClaudeOrgPicker();
+    claudeLoginInProgress = false;
+    applyClaudeAuthStatus(status);
+  } catch (e) {
+    setMsg("Falha ao selecionar a organização: " + (e instanceof Error ? e.message : String(e)), "err");
+    hideClaudeOrgPicker();
+    claudeLoginInProgress = false;
+    await loadClaudeAuthStatus();
   }
 }
 
@@ -690,6 +758,7 @@ export function initSettings(): void {
   $("set-claudeLogin").addEventListener("click", () => void claudeLogin());
   $("set-claudeLoginCancel").addEventListener("click", () => void claudeLoginCancel());
   $("set-claudeLogout").addEventListener("click", () => void claudeLogout());
+  $("set-claudeOrgConfirm").addEventListener("click", () => void claudeSelectOrg());
   $("set-barraCor").addEventListener("input", syncColorPicker);
   $("set-barraCorPicker").addEventListener("input", () => {
     $<HTMLInputElement>("set-barraCor").value = $<HTMLInputElement>("set-barraCorPicker").value;
@@ -729,7 +798,7 @@ export function initSettings(): void {
     const visivel = document.getElementById("view-settings")?.classList.contains("on");
     if (!visivel) return;
     if (codexAuthMode() === "navegador" && !codexLoginInProgress) void loadCodexAuthStatus();
-    if (claudeAuthMode() === "navegador" && !claudeLoginInProgress) void loadClaudeAuthStatus();
+    if (claudeAuthMode() === "navegador" && !claudeLoginInProgress && !claudeOrgPickerOpen) void loadClaudeAuthStatus();
   }, 5000);
 
   void loadSettings();
