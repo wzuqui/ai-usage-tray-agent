@@ -25,7 +25,7 @@ O projeto foi feito com:
 Funcional, com:
 
 - Coleta real do Codex usando `auth.json`
-- Coleta real do Claude usando `organizationId` e `sessionKey`
+- Coleta real do Claude usando `organizationId` e `sessionKey` (manuais) ou login pelo navegador
 - Envio para Loki sem `tenant` e sem `basic auth`
 - Janela do app com **Envio de dados**, **Uso atual**, **Dashboard Claude**, **Dashboard Codex**,
   **Configurações** (com abas e **auto-save**) e **Sobre** (versão, atualização e novidades)
@@ -74,6 +74,7 @@ Exemplo:
     "claude": {
       "habilitado": true,
       "mostraNaTaskbarWindows": true,
+      "authMode": "manual",
       "organizationId": "org_exemplo",
       "cookie": "sessionKey=..."
     }
@@ -246,9 +247,12 @@ Formulário com **abas** que cobre **todas as opções do `config.json`** (mais 
   provedor (`envio.codex`, `envio.claude`, como interruptores) — avisa quando o
   provedor está desativado ou sem credenciais, mas o interruptor segue operável.
 - **Codex**: `habilitado` (interruptor de destaque com o logo) e `authJsonPath`.
-- **Claude**: `habilitado` (interruptor de destaque com o logo), `organizationId`
-  e `cookie` (com mostrar/ocultar) — os campos ficam esmaecidos quando o provedor
-  está desativado.
+- **Claude**: `habilitado` (interruptor de destaque com o logo) e a **autenticação**
+  (`authMode`), que pode ser **Campos manuais** (`organizationId` + `cookie`, com
+  mostrar/ocultar) ou **Login pelo navegador** (um botão abre a claude.ai para você
+  entrar; a sessão e o Organization ID são capturados e salvos no app — em
+  `claude-auth.json` — com aviso para reconectar quando a sessão expira). Os campos
+  ficam esmaecidos quando o provedor está desativado.
 - **Barra de tarefas** (Windows): exibir cada provedor na barra
   (`providers.<ia>.mostraNaTaskbarWindows`), `lado`, `deslocamento`,
   `tamanhoFonte`, `corFonte` (com seletor de cor), `formatoReset` (tempo
@@ -535,8 +539,15 @@ Linux:
 
 Claude:
 
-- A coleta depende de um `sessionKey` válido
-- Se o cookie expirar, será necessário atualizar o `config.json`
+- A autenticação pode ser **manual** (`organizationId` + `sessionKey` válidos) ou por
+  **login pelo navegador**, que captura a sessão e o Organization ID e os salva no
+  app (`claude-auth.json`)
+- A sessão web **expira** e **não há renovação automática** (não existe refresh
+  token): quando expira, a coleta recebe 401/403 e o app pede para **reconectar**
+  (no modo manual, atualize o `cookie`/`config.json`)
+- O login pelo navegador abre a `claude.ai` numa janela do app e lê o cookie de
+  sessão; login por SSO/Google pode não funcionar dentro dela — nesse caso use o
+  login por e-mail/código
 
 Codex:
 
@@ -580,6 +591,7 @@ src-tauri/
     main.rs
     usage_dashboard.rs # coleta as estatisticas do dashboard (Claude, arquivos locais)
     codex_dashboard.rs # historico diario de uso do Codex (API wham, get_codex_stats)
+    claude_auth.rs     # login do Claude pelo navegador (captura o sessionKey do webview) e org (claude-auth.json)
     http_server.rs     # servidor HTTP opcional: serve os dashboards no navegador com PIN (somente leitura)
     taskbar_widget.rs  # widget da barra de tarefas (somente Windows)
   tauri.conf.json

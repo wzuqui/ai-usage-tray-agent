@@ -27,6 +27,11 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 ## [Não lançado]
 
 ### Adicionado
+- Configurações → Claude: novo modo de **login pelo navegador** para conectar a conta, como alternativa ao preenchimento manual de Organization ID + Cookie; a conta é capturada automaticamente e o app avisa para reconectar quando a sessão expira.
+
+## [0.2.44] - 2026-07-01
+
+### Adicionado
 - Configurações → Barra de tarefas e Widget: aviso, em cada provedor, quando ele está desativado ou sem credenciais (o interruptor continua operável).
 
 ### Alterado
