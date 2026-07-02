@@ -232,10 +232,35 @@ async function pickBackground(): Promise<void> {
   }
 }
 
+/// Abre o seletor de arquivo nativo para escolher o auth.json do Codex e joga o
+/// caminho no campo. Como o campo é alterado por código (não dispara "input"),
+/// atualiza os avisos e agenda o auto-save explicitamente.
+async function pickCodexAuthFile(): Promise<void> {
+  try {
+    const path = await invoke<string | null>("pick_codex_auth_file");
+    if (path) {
+      $<HTMLInputElement>("set-codexAuth").value = path;
+      syncProviderHints();
+      scheduleAutoSave();
+    }
+  } catch (e) {
+    setMsg("Falha ao escolher arquivo: " + (e instanceof Error ? e.message : String(e)), "err");
+  }
+}
+
 function setMsg(text: string, kind?: "ok" | "err"): void {
-  const node = $("settings-msg");
-  node.textContent = text;
-  node.className = "msg" + (kind ? " " + kind : "");
+  // Só exibimos erros no topo — coisas que o usuário talvez não perceba (ex.: falha
+  // ao salvar). Confirmações de ações que ele mesmo disparou (conectar/desconectar)
+  // são redundantes e limpam a área em vez de exibir.
+  const node = document.getElementById("settings-msg");
+  if (!node) return;
+  if (kind === "err" && text) {
+    node.textContent = text;
+    node.className = "msg err";
+  } else {
+    node.textContent = "";
+    node.className = "msg";
+  }
 }
 
 // O bloco `envio` (Enviar ao Loki por provedor) NÃO faz parte do save_settings
@@ -271,6 +296,7 @@ async function setEnvioProvider(ferramenta: "codex" | "claude", enviar: boolean)
 // codex_login/codex_logout, e o status vem de codex_auth_status.
 interface CodexAuthStatus {
   connected: boolean;
+  needsReconnect: boolean;
   email: string | null;
   expiresAt: number | null;
 }
@@ -288,18 +314,35 @@ function syncCodexAuthMode(): void {
 }
 
 /// Reflete o status do login pelo navegador na UI (texto, botões) e nos avisos.
+/// - Conectado e saudável: só status + Desconectar (sem botão de conectar).
+/// - Conectado mas com falha de renovação automática: mostra "Reconectar".
+/// - Não conectado: mostra "Conectar com o navegador".
 function applyCodexAuthStatus(st: CodexAuthStatus): void {
-  codexConnected = !!st.connected;
+  // Para os avisos de coleta, uma sessão que precisa reconectar conta como "sem
+  // credenciais" (a coleta não vai funcionar até reconectar).
+  codexConnected = !!st.connected && !st.needsReconnect;
   const statusEl = $("set-codexAuthStatus");
-  if (st.connected) {
+  const loginBtn = $("set-codexLogin") as HTMLElement;
+  const logoutBtn = $("set-codexLogout") as HTMLElement;
+
+  statusEl.classList.remove("ok", "warn");
+  if (st.connected && !st.needsReconnect) {
     statusEl.textContent = st.email ? `Conectado como ${st.email}.` : "Conectado.";
     statusEl.classList.add("ok");
+    loginBtn.hidden = true;
+    logoutBtn.hidden = false;
+  } else if (st.connected && st.needsReconnect) {
+    statusEl.textContent = "Não foi possível renovar a sessão automaticamente. Reconecte.";
+    statusEl.classList.add("warn");
+    loginBtn.hidden = false;
+    loginBtn.textContent = "Reconectar";
+    logoutBtn.hidden = false;
   } else {
-    statusEl.textContent = "Não conectado.";
-    statusEl.classList.remove("ok");
+    statusEl.textContent = "Conecte sua conta para iniciar a coleta.";
+    loginBtn.hidden = false;
+    loginBtn.textContent = "Conectar com o navegador";
+    logoutBtn.hidden = true;
   }
-  $<HTMLButtonElement>("set-codexLogin").textContent = st.connected ? "Reconectar" : "Conectar com o navegador";
-  ($("set-codexLogout") as HTMLElement).hidden = !st.connected;
   syncProviderHints();
 }
 
@@ -312,19 +355,41 @@ async function loadCodexAuthStatus(): Promise<void> {
   }
 }
 
-/// Dispara o login pelo navegador (bloqueante no backend até o usuário concluir).
+/// Dispara o login pelo navegador (bloqueante no backend até o usuário concluir ou
+/// cancelar). Enquanto aguarda, mostra o botão "Cancelar" (que libera a porta 1455
+/// e faz o comando retornar sem esperar o timeout).
 async function codexLogin(): Promise<void> {
-  const btn = $<HTMLButtonElement>("set-codexLogin");
-  btn.disabled = true;
+  const btn = $("set-codexLogin") as HTMLElement;
+  const cancelBtn = $("set-codexLoginCancel") as HTMLElement;
+  // Enquanto aguarda, esconde o "Conectar" e mostra o "Cancelar" no lugar.
+  btn.hidden = true;
+  cancelBtn.hidden = false;
   $("set-codexAuthStatus").textContent = "Aguardando o login no navegador…";
   try {
     applyCodexAuthStatus(await invoke<CodexAuthStatus>("codex_login"));
     setMsg("Codex conectado.", "ok");
   } catch (e) {
-    setMsg("Falha no login do Codex: " + (e instanceof Error ? e.message : String(e)), "err");
-    void loadCodexAuthStatus();
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/cancel/i.test(msg)) {
+      setMsg(""); // cancelamento é ação do usuário; não polui o topo com aviso
+    } else {
+      setMsg("Falha no login do Codex: " + msg, "err");
+    }
+    // Reavalia o estado (mostra "Conectar"/"Reconectar" conforme o caso).
+    await loadCodexAuthStatus();
   } finally {
-    btn.disabled = false;
+    // A visibilidade do "Conectar/Reconectar" é decidida por applyCodexAuthStatus;
+    // aqui só escondemos o "Cancelar".
+    cancelBtn.hidden = true;
+  }
+}
+
+/// Cancela um login em andamento (o codexLogin pendente rejeita e se recupera).
+async function codexLoginCancel(): Promise<void> {
+  try {
+    await invoke("codex_login_cancel");
+  } catch {
+    // best-effort; o login pendente ainda expira sozinho no timeout
   }
 }
 
@@ -332,7 +397,7 @@ async function codexLogin(): Promise<void> {
 async function codexLogout(): Promise<void> {
   try {
     await invoke("codex_logout");
-    applyCodexAuthStatus({ connected: false, email: null, expiresAt: null });
+    applyCodexAuthStatus({ connected: false, needsReconnect: false, email: null, expiresAt: null });
     setMsg("Codex desconectado.", "ok");
   } catch (e) {
     setMsg("Falha ao desconectar: " + (e instanceof Error ? e.message : String(e)), "err");
@@ -417,14 +482,6 @@ function setBodyEnabled(bodyId: string, on: boolean): void {
 function syncProviderHints(): void {
   const codexOn = $<HTMLInputElement>("set-codexHab").checked;
   setBodyEnabled("set-codexBody", codexOn);
-  const codexFalta = codexAuthMode() === "navegador"
-    ? !codexConnected
-    : $<HTMLInputElement>("set-codexAuth").value.trim() === "";
-  const codexWarn = $("set-codexWarn") as HTMLElement;
-  codexWarn.innerHTML = codexAuthMode() === "navegador"
-    ? "Conecte sua conta pelo navegador para iniciar a coleta."
-    : "Preencha o caminho do <code>auth.json</code> abaixo para iniciar a coleta.";
-  codexWarn.hidden = !(codexOn && codexFalta);
 
   const claudeOn = $<HTMLInputElement>("set-claudeHab").checked;
   setBodyEnabled("set-claudeBody", claudeOn);
@@ -505,7 +562,9 @@ export function initSettings(): void {
     syncCodexAuthMode();
     syncProviderHints();
   });
+  $("set-codexAuthPick").addEventListener("click", () => void pickCodexAuthFile());
   $("set-codexLogin").addEventListener("click", () => void codexLogin());
+  $("set-codexLoginCancel").addEventListener("click", () => void codexLoginCancel());
   $("set-codexLogout").addEventListener("click", () => void codexLogout());
   $("set-claudeHab").addEventListener("change", syncProviderHints);
   $("set-claudeOrg").addEventListener("input", syncProviderHints);

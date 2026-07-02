@@ -530,7 +530,9 @@ pub fn run() {
             open_external,
             codex_login,
             codex_auth_status,
-            codex_logout
+            codex_logout,
+            codex_login_cancel,
+            pick_codex_auth_file
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
@@ -1008,6 +1010,27 @@ async fn pick_widget_background(app: AppHandle) -> Option<String> {
         app.dialog()
             .file()
             .add_filter("Imagens e GIFs", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+            .blocking_pick_file()
+            .and_then(|file| file.into_path().ok())
+            .map(|path| path.to_string_lossy().to_string())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Abre o seletor de arquivo nativo para escolher o `auth.json` do Codex (modo de
+/// autenticacao por arquivo). Devolve o caminho, ou `None` se o usuario cancelar.
+/// `async` pelo mesmo motivo de `pick_widget_background` (evitar loop modal na main
+/// thread e travar o event loop/tray).
+#[tauri::command]
+async fn pick_codex_auth_file(app: AppHandle) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .add_filter("auth.json", &["json"])
+            .add_filter("Todos os arquivos", &["*"])
             .blocking_pick_file()
             .and_then(|file| file.into_path().ok())
             .map(|path| path.to_string_lossy().to_string())
@@ -2655,6 +2678,13 @@ fn codex_auth_status(paths: State<'_, RuntimePaths>) -> Value {
 #[tauri::command]
 fn codex_logout(paths: State<'_, RuntimePaths>) -> Result<(), String> {
     codex_auth::logout(&paths.config_dir)
+}
+
+/// Cancela um login pelo navegador em andamento (botao "Cancelar"): libera a porta
+/// 1455 e faz o `codex_login` pendente retornar sem esperar o timeout.
+#[tauri::command]
+fn codex_login_cancel() {
+    codex_auth::cancel();
 }
 
 fn open_path(path: &Path) -> Result<(), String> {

@@ -17,6 +17,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -63,6 +65,11 @@ struct StoredAuth {
     expires_at: Option<i64>,
     /// E-mail extraido do `id_token`, so' para exibir "Conectado como ...".
     email: Option<String>,
+    /// Mensagem da ultima FALHA de renovacao automatica (refresh), se houve. Setada
+    /// por `ensure_fresh` quando o refresh falha (ou nao ha refresh_token e o token
+    /// expirou); limpa a cada login/refresh bem-sucedido. A UI usa isto para so'
+    /// oferecer "Reconectar" quando a renovacao automatica esta' quebrada.
+    refresh_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -101,6 +108,22 @@ pub fn auth_file(config_dir: &Path) -> PathBuf {
     config_dir.join("codex-auth.json")
 }
 
+/// Flag de cancelamento do login em andamento (no maximo um por vez). O botao
+/// "Cancelar" (via `cancel`) e o inicio de um novo login setam a flag do anterior,
+/// fazendo o servidor de callback parar e liberar a porta.
+fn login_cancel_flag() -> &'static Mutex<Option<Arc<AtomicBool>>> {
+    static FLAG: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
+    FLAG.get_or_init(|| Mutex::new(None))
+}
+
+/// Sinaliza o cancelamento do login pelo navegador em andamento (se houver).
+pub fn cancel() {
+    let slot = login_cancel_flag().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(flag) = slot.as_ref() {
+        flag.store(true, Ordering::SeqCst);
+    }
+}
+
 fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
 }
@@ -120,7 +143,13 @@ fn random_base64url(len: usize) -> Result<String, String> {
 fn open_browser(url: &str) {
     #[cfg(target_os = "windows")]
     {
-        let _ = Command::new("cmd").args(["/C", "start", "", url]).spawn();
+        // NAO usar `cmd /C start` aqui: a URL do OAuth tem varios `&` (separadores
+        // de query) e o `cmd` trata `&` como separador de comandos, quebrando a URL.
+        // `rundll32 url.dll,FileProtocolHandler` abre no navegador padrao sem passar
+        // pelo parser do cmd, preservando a URL inteira.
+        let _ = Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
+            .spawn();
     }
     #[cfg(target_os = "linux")]
     {
@@ -196,22 +225,45 @@ fn respond_html(request: tiny_http::Request, html: &str) {
     let _ = request.respond(response);
 }
 
+/// Abre o servidor de callback na porta 1455. Um login recem-cancelado pode ainda
+/// estar liberando a porta, entao tentamos por um curto periodo antes de desistir.
+fn bind_callback_server() -> Result<Server, String> {
+    let mut last_error = String::new();
+    for _ in 0..15 {
+        match Server::http(("127.0.0.1", PORT)) {
+            Ok(server) => return Ok(server),
+            Err(error) => {
+                last_error = error.to_string();
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+    }
+    Err(format!(
+        "Nao foi possivel abrir a porta {PORT} para o login (em uso por outro processo?): {last_error}"
+    ))
+}
+
 /// Sobe o servidor local e aguarda (ate' `LOGIN_TIMEOUT`) o callback do OAuth,
-/// validando o `state`. Devolve o `authorization code`.
-fn wait_for_code(state: &str) -> Result<String, String> {
-    let server = Server::http(("127.0.0.1", PORT)).map_err(|error| {
-        format!("Nao foi possivel abrir a porta {PORT} para o login (ja em uso?): {error}")
-    })?;
+/// validando o `state`. Devolve o `authorization code`. A espera e' fatiada para
+/// checar o cancelamento (`cancel_flag`) periodicamente — assim o botao "Cancelar"
+/// (ou um novo login) libera a porta sem esperar o timeout inteiro.
+fn wait_for_code(state: &str, cancel_flag: &AtomicBool) -> Result<String, String> {
+    let server = bind_callback_server()?;
     let deadline = Instant::now() + LOGIN_TIMEOUT;
 
     loop {
+        if cancel_flag.load(Ordering::SeqCst) {
+            return Err("Login cancelado.".to_string());
+        }
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or_else(|| "Tempo limite aguardando o login no navegador.".to_string())?;
 
-        let request = match server.recv_timeout(remaining) {
+        // Espera em fatias curtas para re-checar cancelamento/deadline.
+        let slice = remaining.min(Duration::from_millis(300));
+        let request = match server.recv_timeout(slice) {
             Ok(Some(request)) => request,
-            Ok(None) => return Err("Tempo limite aguardando o login no navegador.".to_string()),
+            Ok(None) => continue,
             Err(error) => return Err(format!("Falha no servidor de callback: {error}")),
         };
 
@@ -340,6 +392,7 @@ fn stored_from_tokens(
         last_refresh: Some(Utc::now().to_rfc3339()),
         expires_at,
         email,
+        refresh_error: None,
     })
 }
 
@@ -367,9 +420,22 @@ fn has_access_token(auth: &StoredAuth) -> bool {
 }
 
 /// Status do login pelo navegador, para a aba Codex das Configuracoes.
+/// `needsReconnect` fica true quando ha' uma sessao salva mas a renovacao
+/// automatica falhou (ou nao ha' como renovar e o token expirou) — so' nesse caso a
+/// UI oferece "Reconectar".
 fn status_value(auth: &StoredAuth) -> Value {
+    let expired = auth.expires_at.map(|exp| now_ms() >= exp).unwrap_or(false);
+    let no_refresh = auth
+        .tokens
+        .refresh_token
+        .as_deref()
+        .map(|token| token.is_empty())
+        .unwrap_or(true);
+    let needs_reconnect =
+        has_access_token(auth) && (auth.refresh_error.is_some() || (expired && no_refresh));
     json!({
         "connected": has_access_token(auth),
+        "needsReconnect": needs_reconnect,
         "email": auth.email,
         "expiresAt": auth.expires_at,
         "accountId": auth.tokens.account_id,
@@ -383,6 +449,30 @@ fn status_value(auth: &StoredAuth) -> Value {
 /// e devolve o status (`{connected,email,expiresAt,accountId}`). Deve ser chamada
 /// fora da main thread (ex.: `spawn_blocking`).
 pub fn login(client: &Client, config_dir: &Path) -> Result<Value, String> {
+    // Cancela um login anterior que ainda esteja preso aguardando (libera a 1455) e
+    // registra a flag deste login para que o botao "Cancelar" possa interrompe-lo.
+    cancel();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    *login_cancel_flag().lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+        Some(cancel_flag.clone());
+
+    let outcome = login_flow(client, config_dir, &cancel_flag);
+
+    // Limpa o slot se ainda for o nosso (nao pisa num login mais novo).
+    {
+        let mut slot = login_cancel_flag().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.as_ref().map(|flag| Arc::ptr_eq(flag, &cancel_flag)).unwrap_or(false) {
+            *slot = None;
+        }
+    }
+    outcome
+}
+
+fn login_flow(
+    client: &Client,
+    config_dir: &Path,
+    cancel_flag: &AtomicBool,
+) -> Result<Value, String> {
     let state = random_base64url(32)?;
     let verifier = random_base64url(64)?;
     let challenge = base64url(Sha256::digest(verifier.as_bytes()).as_slice());
@@ -406,7 +496,7 @@ pub fn login(client: &Client, config_dir: &Path) -> Result<Value, String> {
 
     open_browser(auth_url.as_str());
 
-    let code = wait_for_code(&state)?;
+    let code = wait_for_code(&state, cancel_flag)?;
     let tokens = exchange_code(client, &code, &verifier)?;
     let stored = stored_from_tokens(tokens, None)?;
 
@@ -439,7 +529,7 @@ pub fn logout(config_dir: &Path) -> Result<(), String> {
 pub fn ensure_fresh(client: &Client, config_dir: &Path) -> Result<PathBuf, String> {
     let path = auth_file(config_dir);
     let mut auth = read_stored(&path).filter(has_access_token).ok_or_else(|| {
-        "Codex não conectado. Faça o login pelo navegador nas Configurações.".to_string()
+        "Codex não autenticado. Verifique a autenticação em Configurações → Codex.".to_string()
     })?;
 
     let needs_refresh = match auth.expires_at {
@@ -448,19 +538,30 @@ pub fn ensure_fresh(client: &Client, config_dir: &Path) -> Result<PathBuf, Strin
     };
     if needs_refresh {
         match auth.tokens.refresh_token.clone().filter(|token| !token.is_empty()) {
-            Some(refresh_token) => {
-                let tokens = exchange_refresh(client, &refresh_token)?;
-                auth = stored_from_tokens(tokens, Some(&auth))?;
-                write_stored(&path, &auth)?;
-            }
+            Some(refresh_token) => match exchange_refresh(client, &refresh_token) {
+                Ok(tokens) => {
+                    // Sucesso limpa qualquer `refresh_error` anterior (via
+                    // `stored_from_tokens`, que grava None).
+                    auth = stored_from_tokens(tokens, Some(&auth))?;
+                    write_stored(&path, &auth)?;
+                }
+                Err(error) => {
+                    // Renovacao falhou: registra para a UI oferecer "Reconectar".
+                    auth.refresh_error = Some(error.clone());
+                    let _ = write_stored(&path, &auth);
+                    return Err(error);
+                }
+            },
             None => {
                 // Sem refresh_token: so' da' pra reconectar. Se o token ainda nao
                 // expirou de fato, seguimos com ele; caso contrario, pedimos login.
                 let expired = auth.expires_at.map(|exp| now_ms() >= exp).unwrap_or(false);
                 if expired {
-                    return Err(
-                        "Sessão do Codex expirada. Reconecte pelo login do navegador.".to_string(),
-                    );
+                    let error =
+                        "Sessão do Codex expirada. Reconecte pelo login do navegador.".to_string();
+                    auth.refresh_error = Some(error.clone());
+                    let _ = write_stored(&path, &auth);
+                    return Err(error);
                 }
             }
         }
