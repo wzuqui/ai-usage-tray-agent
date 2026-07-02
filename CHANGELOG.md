@@ -27,6 +27,12 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 ## [Não lançado]
 
 ### Adicionado
+- Configurações → Codex: novo modo de **login pelo navegador** para conectar a conta do Codex (OAuth), como alternativa ao caminho do `auth.json`; a sessão fica salva no app e é renovada automaticamente, com aviso para reconectar caso a renovação falhe.
+- Configurações → Codex: no modo por arquivo, botão **Escolher…** para selecionar o `auth.json` pelo explorador de arquivos do sistema.
+
+## [0.2.44] - 2026-07-01
+
+### Adicionado
 - Configurações → Barra de tarefas e Widget: aviso, em cada provedor, quando ele está desativado ou sem credenciais (o interruptor continua operável).
 
 ### Alterado

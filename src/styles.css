@@ -229,6 +229,19 @@ select {
 .provider-body > .field { margin-bottom: 0; }
 .provider-body.is-off { opacity: .45; }
 .provider-body input:disabled, .provider-body button:disabled { cursor: not-allowed; }
+/* Status do login do Codex pelo navegador (verde quando conectado; âmbar quando a
+   renovação automática falhou e é preciso reconectar). */
+.codex-auth-status { font-size: 13px; color: #b8b3aa; margin-bottom: 14px; }
+.codex-auth-status.ok { color: #7fc99a; }
+.codex-auth-status.warn { color: #e0a890; }
+/* Os blocos de modo (arquivo/navegador) agrupam um .field; zera a margem inferior
+   dele e a margem-topo do aviso para não somar com o gap do provider-body (o aviso
+   ficava distante demais no fim da seção). */
+#set-codexFileAuth > .field,
+#set-codexBrowserAuth > .field { margin-bottom: 0; }
+/* Teste de UI: na aba Codex, só o cabeçalho (logo/nome/switch) fica no
+   .provider-card; o corpo (campos) usa a largura cheia da aba, como as demais. */
+.stab-codex > .provider-body { padding: 0; }
 /* Texto do toggle de provedor com nome + nota opcional (ex.: aba Envio). */
 .prov-toggle-text { margin-right: auto; display: flex; flex-direction: column; gap: 2px; }
 .prov-toggle-text .prov-toggle-name { margin-right: 0; }
