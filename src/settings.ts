@@ -302,6 +302,8 @@ interface CodexAuthStatus {
 }
 // Reflete o último status conhecido; usado pelos avisos de "sem credenciais".
 let codexConnected = false;
+// Enquanto true, o auto-refresh não relê o status (não atropela o "Aguardando…").
+let codexLoginInProgress = false;
 
 /// Mostra a seção do modo escolhido (caminho do auth.json ou login pelo navegador).
 function codexAuthMode(): "arquivo" | "navegador" {
@@ -364,6 +366,7 @@ async function codexLogin(): Promise<void> {
   // Enquanto aguarda, esconde o "Conectar" e mostra o "Cancelar" no lugar.
   btn.hidden = true;
   cancelBtn.hidden = false;
+  codexLoginInProgress = true;
   $("set-codexAuthStatus").textContent = "Aguardando o login no navegador…";
   try {
     applyCodexAuthStatus(await invoke<CodexAuthStatus>("codex_login"));
@@ -380,6 +383,7 @@ async function codexLogin(): Promise<void> {
   } finally {
     // A visibilidade do "Conectar/Reconectar" é decidida por applyCodexAuthStatus;
     // aqui só escondemos o "Cancelar".
+    codexLoginInProgress = false;
     cancelBtn.hidden = true;
   }
 }
@@ -598,6 +602,17 @@ export function initSettings(): void {
   // um único listener no formulário cobre todos os campos. Setar valores por
   // código (fillForm, picker de cor/fundo) não dispara "change", logo não há laço.
   $("settings-form").addEventListener("change", () => scheduleAutoSave());
+
+  // Auto-refresh do status do login pelo navegador: enquanto a tela Configurações
+  // está visível, relê o status a cada 5s para refletir mudanças externas (ex.:
+  // sessão/token expirou e a coleta marcou "Reconectar"). Só relê o status
+  // (texto/botões), sem tocar nos campos; pula durante um login em andamento. A
+  // janela é destruída ao fechar, então o timer não vaza entre reaberturas.
+  window.setInterval(() => {
+    const visivel = document.getElementById("view-settings")?.classList.contains("on");
+    if (!visivel || codexLoginInProgress) return;
+    if (codexAuthMode() === "navegador") void loadCodexAuthStatus();
+  }, 5000);
 
   void loadSettings();
 }
