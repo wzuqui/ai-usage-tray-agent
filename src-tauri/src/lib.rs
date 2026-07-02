@@ -9,9 +9,10 @@ use std::{
         Arc, Mutex, OnceLock,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
+mod claude_auth;
 mod codex_auth;
 mod codex_dashboard;
 mod http_server;
@@ -28,7 +29,7 @@ use serde_json::{json, Value};
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, Runtime, State, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
@@ -290,6 +291,10 @@ struct ClaudeConfig {
     mostra_na_taskbar_windows: bool,
     organization_id: String,
     cookie: String,
+    /// Modo de autenticacao do Claude: "manual" (padrao; usa `organization_id` +
+    /// `cookie`) ou "navegador" (login pelo navegador; sessao + org no arquivo
+    /// gerenciado `claude-auth.json`, ver `claude_auth`). Desconhecido = "manual".
+    auth_mode: String,
 }
 
 impl Default for ClaudeConfig {
@@ -299,6 +304,7 @@ impl Default for ClaudeConfig {
             mostra_na_taskbar_windows: true,
             organization_id: String::new(),
             cookie: String::new(),
+            auth_mode: "manual".to_string(),
         }
     }
 }
@@ -532,7 +538,11 @@ pub fn run() {
             codex_auth_status,
             codex_logout,
             codex_login_cancel,
-            pick_codex_auth_file
+            pick_codex_auth_file,
+            claude_login,
+            claude_auth_status,
+            claude_logout,
+            claude_login_cancel
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
@@ -1513,7 +1523,8 @@ fn run_collection_cycle<R: Runtime>(
         thread::scope(|scope| {
             let codex_handle =
                 codex_enabled.then(|| scope.spawn(|| collect_codex_metric(&client, &config, paths)));
-            let claude_result = claude_enabled.then(|| collect_claude_metric(&client, &config));
+            let claude_result =
+                claude_enabled.then(|| collect_claude_metric(&client, &config, paths));
             let codex_result = codex_handle.map(|handle| {
                 handle
                     .join()
@@ -1722,17 +1733,34 @@ fn collect_codex_metric(
     })
 }
 
-fn collect_claude_metric(client: &Client, config: &AppConfig) -> Result<UsageMetric, String> {
-    let organization_id = config.providers.claude.organization_id.trim();
-    let cookie = config.providers.claude.cookie.trim();
-
-    if organization_id.is_empty() {
-        return Err("Organization ID do Claude nao configurado.".to_string());
+/// Resolve as credenciais do Claude conforme o modo de autenticacao: "navegador"
+/// usa a sessao capturada (arquivo gerenciado `claude_auth`); qualquer outro valor
+/// usa `organization_id` + `cookie` do config. Devolve `(cookie_header, org_id)`.
+fn resolve_claude_credentials(
+    config: &AppConfig,
+    paths: &RuntimePaths,
+) -> Result<(String, String), String> {
+    if config.providers.claude.auth_mode == "navegador" {
+        claude_auth::credentials(&paths.config_dir)
+    } else {
+        let organization_id = config.providers.claude.organization_id.trim();
+        let cookie = config.providers.claude.cookie.trim();
+        if organization_id.is_empty() {
+            return Err("Organization ID do Claude nao configurado.".to_string());
+        }
+        if cookie.is_empty() {
+            return Err("Cookie do Claude nao configurado.".to_string());
+        }
+        Ok((cookie.to_string(), organization_id.to_string()))
     }
+}
 
-    if cookie.is_empty() {
-        return Err("Cookie do Claude nao configurado.".to_string());
-    }
+fn collect_claude_metric(
+    client: &Client,
+    config: &AppConfig,
+    paths: &RuntimePaths,
+) -> Result<UsageMetric, String> {
+    let (cookie, organization_id) = resolve_claude_credentials(config, paths)?;
 
     let response = client
         .get(format!(
@@ -1747,6 +1775,21 @@ fn collect_claude_metric(client: &Client, config: &AppConfig) -> Result<UsageMet
         )
         .send()
         .map_err(|error| format!("Falha HTTP ao consultar Claude: {error}"))?;
+
+    // No modo navegador, um 401/403 significa sessao web expirada/rejeitada (nao ha
+    // refresh_token): marca para a UI oferecer "Reconectar"; sucesso limpa a marca.
+    if config.providers.claude.auth_mode == "navegador" {
+        let code = response.status().as_u16();
+        if code == 401 || code == 403 {
+            claude_auth::set_needs_reconnect(&paths.config_dir, true);
+            // Mesma mensagem exibida na aba Claude das Configuracoes (reconexao).
+            return Err(
+                "Sessão expirada. Reconecte sua conta para continuar a coleta.".to_string(),
+            );
+        } else if response.status().is_success() {
+            claude_auth::set_needs_reconnect(&paths.config_dir, false);
+        }
+    }
 
     if !response.status().is_success() {
         return Err(format!(
@@ -2650,6 +2693,124 @@ fn open_external(url: String) -> Result<(), String> {
     }
     #[allow(unreachable_code)]
     Err("Abertura de URL nao suportada neste sistema.".to_string())
+}
+
+/// Login do Claude pelo navegador: abre `claude.ai/login` numa janela propria,
+/// aguarda o usuario logar e captura o cookie de sessao (`sessionKey`, httpOnly) via
+/// `cookies_for_url`; depois descobre o `organization_id` e guarda tudo no arquivo
+/// gerenciado. `async` porque criar a WebviewWindow num comando sincrono trava o
+/// event loop (janela em branco); a leitura de cookie roda em `spawn_blocking`
+/// porque no Windows ela deadlocka se chamada na main thread.
+#[tauri::command]
+async fn claude_login(app: AppHandle) -> Result<Value, String> {
+    // Fecha uma janela de login anterior que tenha sobrado aberta (libera o label).
+    if let Some(existing) = app.get_webview_window("claude-login") {
+        let _ = existing.close();
+    }
+    let cancel_flag = claude_auth::begin_login();
+
+    // Abre em branco de proposito: a captura limpa a sessao persistida do webview e
+    // so entao navega para o login, garantindo que cada "Conectar" peca credenciais
+    // (permite trocar de conta) em vez de reusar o cookie da sessao anterior.
+    let blank_url = Url::parse("about:blank")
+        .map_err(|error| format!("URL inválida: {error}"))?;
+    let window = match WebviewWindowBuilder::new(&app, "claude-login", WebviewUrl::External(blank_url))
+        .title("Entrar no Claude")
+        .inner_size(480.0, 780.0)
+        .center()
+        .build()
+    {
+        Ok(window) => window,
+        Err(error) => {
+            claude_auth::end_login(&cancel_flag);
+            return Err(format!("Falha ao abrir a janela de login do Claude: {error}"));
+        }
+    };
+
+    let flag_for_task = cancel_flag.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let paths = app.state::<RuntimePaths>().inner().clone();
+        capture_claude_login(&app, &window, &paths, &flag_for_task)
+    })
+    .await
+    .map_err(|error| error.to_string());
+
+    claude_auth::end_login(&cancel_flag);
+    outcome?
+}
+
+/// Loop (fora da main thread) que espera o cookie `sessionKey` aparecer no webview
+/// de login, respeitando cancelamento, fechamento da janela pelo usuario e um
+/// timeout. Ao capturar, fecha a janela, descobre o `organization_id` e persiste.
+fn capture_claude_login(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    paths: &RuntimePaths,
+    cancel_flag: &AtomicBool,
+) -> Result<Value, String> {
+    let claude_url = Url::parse("https://claude.ai").expect("URL estatica valida");
+
+    // Limpa cookies/dados do webview (a janela esta em `about:blank`, sem sessao
+    // sendo criada) e navega para o login — forca um login novo, sem reusar a conta
+    // anterior. A limpeza conclui bem antes de o usuario enviar as credenciais.
+    let _ = window.clear_all_browsing_data();
+    thread::sleep(Duration::from_millis(700));
+    if let Ok(login_url) = Url::parse("https://claude.ai/login") {
+        let _ = window.navigate(login_url);
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(5 * 60);
+
+    let session_key = loop {
+        if cancel_flag.load(Ordering::SeqCst) {
+            let _ = window.close();
+            return Err("Login cancelado.".to_string());
+        }
+        // Usuario fechou a janela de login manualmente.
+        if app.get_webview_window("claude-login").is_none() {
+            return Err("Login cancelado.".to_string());
+        }
+        if Instant::now() >= deadline {
+            let _ = window.close();
+            return Err("Tempo limite aguardando o login do Claude.".to_string());
+        }
+        if let Ok(cookies) = window.cookies_for_url(claude_url.clone()) {
+            if let Some(value) = cookies
+                .iter()
+                .find(|cookie| cookie.name() == "sessionKey")
+                .map(|cookie| cookie.value().trim().to_string())
+                .filter(|value| !value.is_empty())
+            {
+                break value;
+            }
+        }
+        thread::sleep(Duration::from_millis(1000));
+    };
+
+    let _ = window.close();
+    let client = http_client();
+    let organization_id = claude_auth::fetch_organization_id(&client, &session_key)?;
+    let email = claude_auth::fetch_email(&client, &session_key);
+    claude_auth::store(&paths.config_dir, &session_key, &organization_id, email)
+}
+
+/// Status do login do Claude pelo navegador (sem rede), para a aba Claude.
+#[tauri::command]
+fn claude_auth_status(paths: State<'_, RuntimePaths>) -> Value {
+    claude_auth::status(&paths.config_dir)
+}
+
+/// Remove as credenciais do login do Claude pelo navegador ("Desconectar").
+#[tauri::command]
+fn claude_logout(paths: State<'_, RuntimePaths>) -> Result<(), String> {
+    claude_auth::logout(&paths.config_dir)
+}
+
+/// Cancela um login do Claude em andamento (botao "Cancelar"): faz o loop de
+/// captura parar e fechar a janela sem esperar o timeout.
+#[tauri::command]
+fn claude_login_cancel() {
+    claude_auth::cancel();
 }
 
 /// Login do Codex pelo navegador (OAuth + PKCE), alternativa ao caminho do

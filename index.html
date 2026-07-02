@@ -271,7 +271,7 @@
               </div>
 
               <!-- Claude -->
-              <div class="stab" data-spanel="claude">
+              <div class="stab stab-claude" data-spanel="claude">
                 <div class="provider-card">
                   <div class="provider-head">
                     <span class="provider-logo"><span class="spark">✳</span></span>
@@ -284,8 +284,16 @@
                       <span class="switch-track"></span>
                     </label>
                   </div>
-                  <div class="provider-body" id="set-claudeBody">
-                    <div id="set-claudeWarn" class="field-warn" hidden>Preencha o Organization ID e o Cookie de sessão abaixo para iniciar a coleta.</div>
+                </div>
+                <div class="provider-body" id="set-claudeBody">
+                  <div class="field">
+                    <label for="set-claudeAuthMode">Autenticação</label>
+                    <select id="set-claudeAuthMode">
+                      <option value="manual">Campos manuais</option>
+                      <option value="navegador">Login pelo navegador</option>
+                    </select>
+                  </div>
+                  <div id="set-claudeManualAuth">
                     <div class="field">
                       <label for="set-claudeOrg">Organization ID <span class="req">(obrigatório)</span></label>
                       <input type="text" id="set-claudeOrg" placeholder="org_...">
@@ -297,6 +305,17 @@
                         <button type="button" class="btn btn-show" id="set-cookieToggle">Mostrar</button>
                       </div>
                       <div class="desc">Ex.: <code>sessionKey=...</code>. Se o cookie expirar, atualize aqui.</div>
+                    </div>
+                    <div id="set-claudeWarn" class="field-warn" hidden>Preencha o Organization ID e o Cookie de sessão para iniciar a coleta.</div>
+                  </div>
+                  <div id="set-claudeBrowserAuth" hidden>
+                    <div class="field">
+                      <div class="auth-status" id="set-claudeAuthStatus">Conecte sua conta para iniciar a coleta.</div>
+                      <div class="inline">
+                        <button type="button" class="btn btn-primary" id="set-claudeLogin">Conectar com o navegador</button>
+                        <button type="button" class="btn" id="set-claudeLoginCancel" hidden>Cancelar</button>
+                        <button type="button" class="btn" id="set-claudeLogout" hidden>Desconectar</button>
+                      </div>
                     </div>
                   </div>
                 </div>
