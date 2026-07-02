@@ -116,10 +116,22 @@ struct Organization {
     capabilities: Vec<String>,
 }
 
-/// Com o `sessionKey` capturado, descobre o `organization_id` chamando
-/// `claude.ai/api/organizations`. Prefere a org com capability "chat" (a conta
-/// claude.ai de uso); senao, a primeira da lista.
-pub fn fetch_organization_id(client: &Client, session_key: &str) -> Result<String, String> {
+/// Uma org candidata (com capability "chat") a ser oferecida ao usuario quando a
+/// conta tem mais de uma — a coleta de uso e' por org, e escolher a errada faz o
+/// app reportar 0% (ex.: org pessoal antiga vs. org de time realmente usada).
+#[derive(Debug, Clone, Serialize)]
+pub struct OrgCandidate {
+    pub uuid: String,
+    pub name: Option<String>,
+}
+
+/// Lista as organizacoes com capability "chat" (as que aparecem em claude.ai e tem
+/// uso coletavel), preservando a ordem devolvida pela API. Usada para escolher a org
+/// no login pelo navegador.
+pub fn fetch_chat_organizations(
+    client: &Client,
+    session_key: &str,
+) -> Result<Vec<OrgCandidate>, String> {
     let response = client
         .get("https://claude.ai/api/organizations")
         .header("accept", "*/*")
@@ -138,17 +150,35 @@ pub fn fetch_organization_id(client: &Client, session_key: &str) -> Result<Strin
         .json()
         .map_err(|error| format!("Falha ao decodificar organizações do Claude: {error}"))?;
 
-    let pick = orgs
-        .iter()
-        .find(|org| org.capabilities.iter().any(|c| c == "chat"))
-        .or_else(|| orgs.first());
-    let uuid = pick
-        .and_then(|org| org.uuid.clone())
-        .filter(|u| !u.is_empty())
-        .ok_or_else(|| "Nenhuma organização encontrada na conta do Claude.".to_string())?;
-    // `name` fica so' para log/debug futuro; nao e' usado agora.
-    let _ = pick.and_then(|o| o.name.clone());
-    Ok(uuid)
+    let candidates: Vec<OrgCandidate> = orgs
+        .into_iter()
+        .filter(|org| org.capabilities.iter().any(|c| c == "chat"))
+        .filter_map(|org| {
+            org.uuid
+                .filter(|u| !u.is_empty())
+                .map(|uuid| OrgCandidate { uuid, name: org.name })
+        })
+        .collect();
+    Ok(candidates)
+}
+
+// ---- Sessao pendente entre login e escolha da org ----------------------------
+
+/// Guarda o `sessionKey` capturado enquanto o usuario escolhe a org (quando a conta
+/// tem mais de uma com "chat"). So' fica preenchido nesse intervalo curto.
+fn pending_session() -> &'static Mutex<Option<String>> {
+    static PENDING: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(None))
+}
+
+/// Registra o `sessionKey` capturado, aguardando a escolha da org pelo usuario.
+pub fn set_pending_session(session_key: &str) {
+    *pending_session().lock().unwrap_or_else(|p| p.into_inner()) = Some(session_key.to_string());
+}
+
+/// Consome o `sessionKey` pendente (uma vez), quando o usuario confirma a org.
+pub fn take_pending_session() -> Option<String> {
+    pending_session().lock().unwrap_or_else(|p| p.into_inner()).take()
 }
 
 // ---- API publica usada por lib.rs --------------------------------------------

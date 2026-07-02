@@ -26,6 +26,11 @@ mais nova — e a tela **Novidades** mostra o histórico completo. O campo `note
 
 ## [Não lançado]
 
+### Corrigido
+- Configurações → Claude (login pelo navegador): quando a conta tem mais de uma organização, o app agora pede para você escolher qual usar (mostrando o uso atual de cada uma) em vez de escolher automaticamente a primeira — que podia ser uma organização sem uso, fazendo o app reportar 0% mesmo com a organização certa em uso.
+
+## [0.2.46] - 2026-07-02
+
 ### Adicionado
 - Configurações → Codex: novo modo de **login pelo navegador** para conectar a conta do Codex (OAuth), como alternativa ao caminho do `auth.json`; a sessão fica salva no app e é renovada automaticamente, com aviso para reconectar caso a renovação falhe.
 - Configurações → Codex: no modo por arquivo, botão **Escolher…** para selecionar o `auth.json` pelo explorador de arquivos do sistema.

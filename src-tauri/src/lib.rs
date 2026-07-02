@@ -542,7 +542,8 @@ pub fn run() {
             claude_login,
             claude_auth_status,
             claude_logout,
-            claude_login_cancel
+            claude_login_cancel,
+            claude_select_org
         ])
         .setup(|app| {
             // Janela unica do app (Dashboard + Configuracoes) e' criada sob demanda
@@ -2789,9 +2790,63 @@ fn capture_claude_login(
 
     let _ = window.close();
     let client = http_client();
-    let organization_id = claude_auth::fetch_organization_id(&client, &session_key)?;
-    let email = claude_auth::fetch_email(&client, &session_key);
-    claude_auth::store(&paths.config_dir, &session_key, &organization_id, email)
+    let orgs = claude_auth::fetch_chat_organizations(&client, &session_key)?;
+
+    match orgs.as_slice() {
+        [] => Err("Nenhuma organização encontrada na conta do Claude.".to_string()),
+        // Uma unica org: nada a escolher, salva direto (comportamento de sempre).
+        [org] => {
+            let email = claude_auth::fetch_email(&client, &session_key);
+            let status =
+                claude_auth::store(&paths.config_dir, &session_key, &org.uuid, email)?;
+            Ok(json!({ "needsSelection": false, "status": status }))
+        }
+        // Varias orgs com "chat": guarda a sessao e devolve as candidatas (com o uso
+        // atual de cada uma) para o usuario escolher; a coleta e' por org e escolher a
+        // errada faz o app reportar 0% (ex.: org pessoal antiga vs. org de time usada).
+        _ => {
+            claude_auth::set_pending_session(&session_key);
+            let email = claude_auth::fetch_email(&client, &session_key);
+            let candidates: Vec<Value> = orgs
+                .iter()
+                .map(|org| {
+                    json!({
+                        "uuid": org.uuid,
+                        "name": org.name,
+                        "utilization": claude_org_utilization(&client, &session_key, &org.uuid),
+                    })
+                })
+                .collect();
+            Ok(json!({
+                "needsSelection": true,
+                "email": email,
+                "organizations": candidates,
+            }))
+        }
+    }
+}
+
+/// Uso da janela de 5h (0..100) de uma org, para ajudar o usuario a identificar a org
+/// certa na tela de escolha. Melhor-esforco: qualquer falha vira `null`.
+fn claude_org_utilization(client: &Client, session_key: &str, organization_id: &str) -> Option<f64> {
+    let response = client
+        .get(format!(
+            "https://claude.ai/api/organizations/{organization_id}/usage"
+        ))
+        .header("accept", "*/*")
+        .header("cookie", claude_auth::cookie_header(session_key))
+        .header("referer", "https://claude.ai/settings/usage")
+        .header(
+            "user-agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        )
+        .send()
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let payload: ClaudeUsageResponse = response.json().ok()?;
+    payload.five_hour.and_then(|fh| fh.utilization).map(round_percent)
 }
 
 /// Status do login do Claude pelo navegador (sem rede), para a aba Claude.
@@ -2811,6 +2866,22 @@ fn claude_logout(paths: State<'_, RuntimePaths>) -> Result<(), String> {
 #[tauri::command]
 fn claude_login_cancel() {
     claude_auth::cancel();
+}
+
+/// Grava a org escolhida pelo usuario quando o login pelo navegador encontrou mais de
+/// uma org com "chat" (ver `capture_claude_login`). Usa a sessao pendente capturada no
+/// login; devolve o status para a UI. Erro se a sessao pendente expirou (novo login).
+#[tauri::command]
+fn claude_select_org(paths: State<'_, RuntimePaths>, organization_id: String) -> Result<Value, String> {
+    let session_key = claude_auth::take_pending_session()
+        .ok_or_else(|| "Sessão de login expirou. Conecte novamente.".to_string())?;
+    let organization_id = organization_id.trim();
+    if organization_id.is_empty() {
+        return Err("Nenhuma organização selecionada.".to_string());
+    }
+    let client = http_client();
+    let email = claude_auth::fetch_email(&client, &session_key);
+    claude_auth::store(&paths.config_dir, &session_key, organization_id, email)
 }
 
 /// Login do Codex pelo navegador (OAuth + PKCE), alternativa ao caminho do
