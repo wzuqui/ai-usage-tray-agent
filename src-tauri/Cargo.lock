@@ -21,7 +21,7 @@ dependencies = [
 name = "ai-usage-tray-agent"
 version = "0.2.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "dirs 7.0.0",
  "getrandom 0.4.2",
